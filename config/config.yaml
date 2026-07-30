@@ -39,7 +39,7 @@ plot_blast_script: "snakemake_scripts/rRNA_analysis/plot_blast_pie_charts.py"
 min_blast_reads: 100
 blast_db: "blast_db/16S_ribosomal_RNA_plus_wolbachia"
 
-integrate_script: "scripts/method_comparison/integrate_v2.py"  # Changed to v2 on 3/25/26
+integrate_script: "scripts/analysis/integrate.py"
 integrate_threads: 16
 integrate_partition: "medium"
 integrate_mem: 128000
@@ -70,34 +70,33 @@ gene_set_libraries:
   - "GO_Molecular_Function_2018"
   - "KEGG_2019"
 
-# NMF scripts
-nmf_annotate_script:       "snakemake_scripts/analysis/annotate_nmf_programs.py"
-nmf_continuous_script:  "snakemake_scripts/analysis/annotate_nmf_continuous_var.py"
-nmf_categorical_script: "snakemake_scripts/analysis/annotate_nmf_categorical_var.py"
-nmf_script: "snakemake_scripts/analysis/nmf_programs.py"
+# # NMF scripts
+# nmf_annotate_script:       "snakemake_scripts/analysis/annotate_nmf_programs.py"
+# nmf_continuous_script:  "snakemake_scripts/analysis/annotate_nmf_continuous_var.py"
+# nmf_categorical_script: "snakemake_scripts/analysis/annotate_nmf_categorical_var.py"
+# nmf_script: "snakemake_scripts/analysis/nmf_programs.py"
 
-nmf_threads: 8
-nmf_mem: 64000
-nmf_partition: "medium"
-nmf_time: "4:00:00"
+# nmf_threads: 8
+# nmf_mem: 64000
+# nmf_partition: "medium"
+# nmf_time: "4:00:00"
 
-nmf_continuous_threads: 4
-nmf_continuous_mem: 32000
-nmf_continuous_partition: "medium"
-nmf_continuous_time: "2:00:00"
+# nmf_continuous_threads: 4
+# nmf_continuous_mem: 32000
+# nmf_continuous_partition: "medium"
+# nmf_continuous_time: "2:00:00"
 
-nmf_categorical_threads: 4
-nmf_categorical_mem: 32000
-nmf_categorical_partition: "medium"
-nmf_categorical_time: "2:00:00"
+# nmf_categorical_threads: 4
+# nmf_categorical_mem: 32000
+# nmf_categorical_partition: "medium"
+# nmf_categorical_time: "2:00:00"
 
-nmf_annotate_sample:       "wolbachia_infection"   # prefix for output file names
-nmf_annotate_top_genes:    200                     # top N genes per program for enrichment
-nmf_annotate_skip_gsea:    false                   # set true to skip local preranked GSEA
-nmf_annotate_skip_flyenrichr: false                # set true if no internet access on nodes
+# nmf_annotate_sample:       "wolbachia_infection"   # prefix for output file names
+# nmf_annotate_top_genes:    200                     # top N genes per program for enrichment
+# nmf_annotate_skip_gsea:    false                   # set true to skip local preranked GSEA
+# nmf_annotate_skip_flyenrichr: false                # set true if no internet access on nodes
 
-# Resources
-nmf_annotate_threads:   8
-nmf_annotate_partition: "medium"
-nmf_annotate_mem:       32000
-nmf_annotate_time:      "4:00:00"
+# nmf_annotate_threads:   8
+# nmf_annotate_partition: "medium"
+# nmf_annotate_mem:       32000
+# nmf_annotate_time:      "4:00:00"

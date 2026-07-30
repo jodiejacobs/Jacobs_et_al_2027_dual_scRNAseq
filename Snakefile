@@ -83,13 +83,13 @@ rule all:
         Use actual sample IDs for rRNA analysis
         expand("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
                sample_id=SAMPLE_IDS,
-               gene=config.get("target_genes", ["GQX67_05945"])),
+               gene=config.get("target_gene", ["GQX67_05945"])),
         expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
                sample_id=SAMPLE_IDS,
-               gene=config.get("target_genes", ["GQX67_05945"])),
+               gene=config.get("target_gene", ["GQX67_05945"])),
         expand("results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary",
                sample_id=SAMPLE_IDS,
-               gene=config.get("target_genes", ["GQX67_05945"])),
+               gene=config.get("target_gene", ["GQX67_05945"])),
         expand("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}",
                zip,
                condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
@@ -101,11 +101,11 @@ rule all:
         # Integration
         "results/integrated/integrated.h5ad",
  
-        # Gene program and pathway analysis
-        "results/nmf_programs/.done",
-        "results/nmf_continuous_var/.done",
-        "results/nmf_categorical_var/.done",
-        "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
+        # # Gene program and pathway analysis
+        # "results/nmf_programs/.done",
+        # "results/nmf_continuous_var/.done",
+        # "results/nmf_categorical_var/.done",
+        # "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
 
 
 # Process 10X samples with kallisto bustools
@@ -405,7 +405,7 @@ rule plot_coverage_by_group:
             condition=wildcards.condition,
             replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
             seq_platform=wildcards.seq_platform,
-            gene=config.get("target_genes", ["GQX67_05945"])
+            gene=config.get("target_gene", ["GQX67_05945"])
         )
     output:
         plot_dir = directory("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}")
@@ -445,7 +445,7 @@ rule plot_blast_by_group:
             condition=wildcards.condition,
             replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
             seq_platform=wildcards.seq_platform,
-            gene=config.get("target_genes", ["GQX67_05945"])
+            gene=config.get("target_gene", ["GQX67_05945"])
         )
     output:
         plot_dir = directory("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}")
@@ -561,172 +561,172 @@ rule integrate:
         echo "Integration complete"
         """
 
-##################################################################
-# Gene program and pathway analysis rules
-##################################################################
-rule nmf_programs:
-    input:
-        h5ad = "results/integrated/integrated_with_cellcycle.h5ad"
-    output:
-        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
-        summary = "results/nmf_programs/SUMMARY.txt",
-        flag = touch("results/nmf_programs/.done")
-    params:
-        script = config.get("nmf_script"),
-        output_dir = "results/nmf_programs",
-        n_programs = config.get("n_programs", 15),
-        n_top_genes = config.get("n_top_genes", 2000),
-        organism = config.get("organism", "Fly"),
-        gene_id_type = config.get("gene_id_type", "flybase"),
-        flybase_annotation = config.get("flybase_annotation",
-            "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
-    log:
-        "logs/nmf/nmf_programs.log"
-    threads:
-        config.get("nmf_threads", 8)
-    resources:
-        slurm_partition = config.get("nmf_partition", "medium"),
-        mem_mb          = config.get("nmf_mem", 64000),
-        slurm_time      = config.get("nmf_time", "4:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting NMF program discovery"
+# ##################################################################
+# # Gene program and pathway analysis rules
+# ##################################################################
+# rule nmf_programs:
+#     input:
+#         h5ad = "results/integrated/integrated_with_cellcycle.h5ad"
+#     output:
+#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
+#         summary = "results/nmf_programs/SUMMARY.txt",
+#         flag = touch("results/nmf_programs/.done")
+#     params:
+#         script = config.get("nmf_script"),
+#         output_dir = "results/nmf_programs",
+#         n_programs = config.get("n_programs", 15),
+#         n_top_genes = config.get("n_top_genes", 2000),
+#         organism = config.get("organism", "Fly"),
+#         gene_id_type = config.get("gene_id_type", "flybase"),
+#         flybase_annotation = config.get("flybase_annotation",
+#             "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
+#     log:
+#         "logs/nmf/nmf_programs.log"
+#     threads:
+#         config.get("nmf_threads", 8)
+#     resources:
+#         slurm_partition = config.get("nmf_partition", "medium"),
+#         mem_mb          = config.get("nmf_mem", 64000),
+#         slurm_time      = config.get("nmf_time", "4:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Starting NMF program discovery"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
+#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         conda activate {SCANPY_ENV}
 
-        python {params.script} \
-            --input {input.h5ad} \
-            --output_dir {params.output_dir} \
-            --n_programs {params.n_programs} \
-            --n_top_genes {params.n_top_genes} \
-            --organism {params.organism} \
-            --gene_id_type {params.gene_id_type} \
-            --flybase_annotation {params.flybase_annotation}
+#         python {params.script} \
+#             --input {input.h5ad} \
+#             --output_dir {params.output_dir} \
+#             --n_programs {params.n_programs} \
+#             --n_top_genes {params.n_top_genes} \
+#             --organism {params.organism} \
+#             --gene_id_type {params.gene_id_type} \
+#             --flybase_annotation {params.flybase_annotation}
 
-        echo "NMF program discovery complete"
-        """
+#         echo "NMF program discovery complete"
+#         """
 
-rule nmf_continuous_var:
-    input:
-        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
-    output:
-        correlations = "results/nmf_continuous_var/program_correlations.csv",
-        summary = "results/nmf_continuous_var/SUMMARY.txt",
-        flag = touch("results/nmf_continuous_var/.done")
-    params:
-        script = config.get("nmf_continuous_script"),
-        output_dir = "results/nmf_continuous_var",
-        continuous_var = config.get("continuous_var", None),  # Auto-detect if None
-        flybase_annotation = config.get("flybase_annotation", 
-            "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
-    log:
-        "logs/nmf/nmf_continuous_var.log"
-    threads:
-        config.get("nmf_continuous_threads", 4)
-    resources:
-        slurm_partition = config.get("nmf_continuous_partition", "medium"),
-        mem_mb = config.get("nmf_continuous_mem", 32000),
-        slurm_time = config.get("nmf_continuous_time", "2:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting NMF continuous variable analysis"
+# rule nmf_continuous_var:
+#     input:
+#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
+#     output:
+#         correlations = "results/nmf_continuous_var/program_correlations.csv",
+#         summary = "results/nmf_continuous_var/SUMMARY.txt",
+#         flag = touch("results/nmf_continuous_var/.done")
+#     params:
+#         script = config.get("nmf_continuous_script"),
+#         output_dir = "results/nmf_continuous_var",
+#         continuous_var = config.get("continuous_var", None),  # Auto-detect if None
+#         flybase_annotation = config.get("flybase_annotation", 
+#             "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
+#     log:
+#         "logs/nmf/nmf_continuous_var.log"
+#     threads:
+#         config.get("nmf_continuous_threads", 4)
+#     resources:
+#         slurm_partition = config.get("nmf_continuous_partition", "medium"),
+#         mem_mb = config.get("nmf_continuous_mem", 32000),
+#         slurm_time = config.get("nmf_continuous_time", "2:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Starting NMF continuous variable analysis"
         
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
+#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         conda activate {SCANPY_ENV}
         
-        python {params.script} \
-            --input {input.adata_with_programs} \
-            --output_dir {params.output_dir} \
-            --continuous_var {params.continuous_var} \
-            --flybase_annotation {params.flybase_annotation}
+#         python {params.script} \
+#             --input {input.adata_with_programs} \
+#             --output_dir {params.output_dir} \
+#             --continuous_var {params.continuous_var} \
+#             --flybase_annotation {params.flybase_annotation}
         
-        echo "NMF continuous variable analysis complete"
-        """
+#         echo "NMF continuous variable analysis complete"
+#         """
 
-rule nmf_categorical_var:
-    input:
-        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
-    output:
-        comparison = "results/nmf_categorical_var/program_comparison.csv",
-        flag = touch("results/nmf_categorical_var/.done")
-    params:
-        script = config.get("nmf_categorical_script"),
-        output_dir = "results/nmf_categorical_var",
-        categorical_var = config.get("categorical_var", None)  # Auto-detect if None
-    log:
-        "logs/nmf/nmf_categorical_var.log"
-    threads:
-        config.get("nmf_categorical_threads", 4)
-    resources:
-        slurm_partition = config.get("nmf_categorical_partition", "medium"),
-        mem_mb = config.get("nmf_categorical_mem", 32000),
-        slurm_time = config.get("nmf_categorical_time", "2:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting NMF categorical variable analysis"
+# rule nmf_categorical_var:
+#     input:
+#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
+#     output:
+#         comparison = "results/nmf_categorical_var/program_comparison.csv",
+#         flag = touch("results/nmf_categorical_var/.done")
+#     params:
+#         script = config.get("nmf_categorical_script"),
+#         output_dir = "results/nmf_categorical_var",
+#         categorical_var = config.get("categorical_var", None)  # Auto-detect if None
+#     log:
+#         "logs/nmf/nmf_categorical_var.log"
+#     threads:
+#         config.get("nmf_categorical_threads", 4)
+#     resources:
+#         slurm_partition = config.get("nmf_categorical_partition", "medium"),
+#         mem_mb = config.get("nmf_categorical_mem", 32000),
+#         slurm_time = config.get("nmf_categorical_time", "2:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Starting NMF categorical variable analysis"
         
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
+#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         conda activate {SCANPY_ENV}
         
-        python {params.script} \
-            --input {input.adata_with_programs} \
-            --output_dir {params.output_dir} \
-            --categorical_var {params.categorical_var}
+#         python {params.script} \
+#             --input {input.adata_with_programs} \
+#             --output_dir {params.output_dir} \
+#             --categorical_var {params.categorical_var}
         
-        echo "NMF categorical variable analysis complete"
-        """
+#         echo "NMF categorical variable analysis complete"
+#         """
 
-rule nmf_annotate_programs:
-    input:
-        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
-        nmf_done            = "results/nmf_programs/.done",
-        mapping             = config["transcripts_to_genes"]
-    output:
-        output  = "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
-    params:
-        script       = config.get("nmf_annotate_script"),
-        output_dir   = "results/nmf_annotate_programs",
-        program_dir  = "results/nmf_programs",
-        sample_name  = config.get("nmf_annotate_sample", "wolbachia_infection"),
-        titer_var    = config.get("continuous_var", "wolbachia_titer"),
-        cc_s_var     = config.get("cc_s_var",      "S_score"),
-        cc_g2m_var   = config.get("cc_g2m_var",    "G2M_score"),
-        cc_phase_var = config.get("cc_phase_var",  "phase"),
-        top_genes    = config.get("nmf_annotate_top_genes", 200),
-        skip_gsea    = "--skip_gsea" if config.get("nmf_annotate_skip_gsea", False) else "",
-        skip_fly     = "--skip_flyenrichr" if config.get("nmf_annotate_skip_flyenrichr", False) else ""
-    log:
-        "logs/nmf/nmf_annotate_programs.log"
-    threads:
-        config.get("nmf_annotate_threads", 8)
-    resources:
-        slurm_partition = config.get("nmf_annotate_partition", "medium"),
-        mem_mb          = config.get("nmf_annotate_mem",       32000),
-        slurm_time      = config.get("nmf_annotate_time",      "4:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting NMF program annotation"
+# rule nmf_annotate_programs:
+#     input:
+#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
+#         nmf_done            = "results/nmf_programs/.done",
+#         mapping             = config["transcripts_to_genes"]
+#     output:
+#         output  = "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
+#     params:
+#         script       = config.get("nmf_annotate_script"),
+#         output_dir   = "results/nmf_annotate_programs",
+#         program_dir  = "results/nmf_programs",
+#         sample_name  = config.get("nmf_annotate_sample", "wolbachia_infection"),
+#         titer_var    = config.get("continuous_var", "wolbachia_titer"),
+#         cc_s_var     = config.get("cc_s_var",      "S_score"),
+#         cc_g2m_var   = config.get("cc_g2m_var",    "G2M_score"),
+#         cc_phase_var = config.get("cc_phase_var",  "phase"),
+#         top_genes    = config.get("nmf_annotate_top_genes", 200),
+#         skip_gsea    = "--skip_gsea" if config.get("nmf_annotate_skip_gsea", False) else "",
+#         skip_fly     = "--skip_flyenrichr" if config.get("nmf_annotate_skip_flyenrichr", False) else ""
+#     log:
+#         "logs/nmf/nmf_annotate_programs.log"
+#     threads:
+#         config.get("nmf_annotate_threads", 8)
+#     resources:
+#         slurm_partition = config.get("nmf_annotate_partition", "medium"),
+#         mem_mb          = config.get("nmf_annotate_mem",       32000),
+#         slurm_time      = config.get("nmf_annotate_time",      "4:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Starting NMF program annotation"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
+#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         conda activate {SCANPY_ENV}
 
-        python {params.script} \
-            --input        {input.adata_with_programs} \
-            --program_dir  {params.program_dir} \
-            --output_dir   {params.output_dir} \
-            --mapping      {input.mapping} \
-            --titer_var    {params.titer_var} \
-            --cc_s_var     {params.cc_s_var} \
-            --cc_g2m_var   {params.cc_g2m_var} \
-            --cc_phase_var {params.cc_phase_var} \
-            --top_genes    {params.top_genes} \
-            {params.skip_gsea} \
-            {params.skip_fly}
+#         python {params.script} \
+#             --input        {input.adata_with_programs} \
+#             --program_dir  {params.program_dir} \
+#             --output_dir   {params.output_dir} \
+#             --mapping      {input.mapping} \
+#             --titer_var    {params.titer_var} \
+#             --cc_s_var     {params.cc_s_var} \
+#             --cc_g2m_var   {params.cc_g2m_var} \
+#             --cc_phase_var {params.cc_phase_var} \
+#             --top_genes    {params.top_genes} \
+#             {params.skip_gsea} \
+#             {params.skip_fly}
 
-        echo "NMF program annotation complete"
-        """
+#         echo "NMF program annotation complete"
+#         """
