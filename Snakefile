@@ -75,120 +75,38 @@ def get_replicates_for_combo(condition, seq_platform):
 # Main rule that defines the final output
 rule all:
     input:
-        # Only create outputs for condition-seq_platform combos that exist
-        # expand("results/combined/{condition}_{seq_platform}.h5ad",
-        #        zip,
-        #        condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-        #        seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
-        # Use actual sample IDs for rRNA analysis
-        # expand("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
-        #        sample_id=SAMPLE_IDS,
-        #        gene=config.get("target_genes", ["GQX67_05945"])),
-        # expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
-        #        sample_id=SAMPLE_IDS,
-        #        gene=config.get("target_genes", ["GQX67_05945"])),
-        # expand("results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary",
-        #        sample_id=SAMPLE_IDS,
-        #        gene=config.get("target_genes", ["GQX67_05945"])),
-        # expand("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}",
-        #        zip,
-        #        condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-        #        seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
-        # expand("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}",
-        #        zip,
-        #        condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-        #        seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
+        Only create outputs for condition-seq_platform combos that exist
+        expand("results/combined/{condition}_{seq_platform}.h5ad",
+               zip,
+               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
+               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
+        Use actual sample IDs for rRNA analysis
+        expand("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
+               sample_id=SAMPLE_IDS,
+               gene=config.get("target_genes", ["GQX67_05945"])),
+        expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
+               sample_id=SAMPLE_IDS,
+               gene=config.get("target_genes", ["GQX67_05945"])),
+        expand("results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary",
+               sample_id=SAMPLE_IDS,
+               gene=config.get("target_genes", ["GQX67_05945"])),
+        expand("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}",
+               zip,
+               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
+               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
+        expand("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}",
+               zip,
+               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
+               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
         # Integration
         "results/integrated/integrated.h5ad",
-        # Cell cycle for uninfected samples
-        "results/integrated/integrated_uninfected_with_cellcycle.h5ad",
-        "results/integrated/integrated_uninfected_with_cellcycle_annotated/JW18_uninfected_cyclum_annotated.h5ad",
-        # Validate PIPseq and 10X clustering
-        "results/validate_pipseq/label_transfer_confusion_matrix.csv",
-        "results/validate_pipseq/marker_gene_jaccard_matrix.csv",
-        "results/validate_pipseq/pseudobulk_spearman_correlation.csv",
-        # Cell cycle
-        "results/cellcycle/.done",
-        "results/integrated/integrated_by_cellcycle.h5ad",
-        # Cluster marker + pathway analysis
-        "results/cluster_marker_pathway/wolbachia_infection_markers_top50.csv",
-        expand("results/sceptic/{sample}/sceptic_results_{sample}.csv",
-            sample=["wolbachia_infection"]),
-        expand("results/sceptic/{sample}/sceptic_{sample}.h5ad", 
-            sample=["wolbachia_infection"]),
-        expand("results/sceptic/{sample}/.done",
-            sample=["wolbachia_infection"]),
-                # Gene program and pathway analysis
+ 
+        # Gene program and pathway analysis
         "results/nmf_programs/.done",
         "results/nmf_continuous_var/.done",
         "results/nmf_categorical_var/.done",
         "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
-        expand("results/pseudotime_genes/{sample}/summary_dynamic_genes.csv",
-            sample=["wolbachia_infection"]),
-        expand("results/pseudotime_genes/{sample}/.done",
-            sample=["wolbachia_infection"]),
-        expand("results/pseudotime_genes/{sample}/tradeseq.done",
-            sample=["wolbachia_infection"]),
-        expand("results/rRNA_analysis/read_counts/{sample_id}/{gene}_read_counts.txt",
-               sample_id=SAMPLE_IDS,
-               gene=config.get("target_genes", ["GQX67_05945"]))
 
-
-# Establish rule precedencex
-ruleorder: map_pipseq > combine_files_by_condition_platform
-ruleorder: map_10x > combine_files_by_condition_platform
-
-# Process PIPseq samples with kallisto bustools
-rule map_pipseq:
-    input:
-        read1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
-        read2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1]
-    output:
-        h5ad = "results/h5ad_results/{sample_id}.h5ad",
-        bus = "results/pipseq/{sample_id}/output.unfiltered.bus",
-        ec = "results/pipseq/{sample_id}/matrix.ec",
-        transcripts = "results/pipseq/{sample_id}/transcripts.txt"
-    params:
-        sample_id = "{sample_id}",
-        outdir = "results/pipseq/{sample_id}",
-        kallisto_index = config["kallisto_index"],
-        transcripts_to_genes = config["transcripts_to_genes"]
-    wildcard_constraints:
-        sample_id = ".*_pipseq"  # Only match samples ending with _pipseq
-    log:
-        "logs/pipseq/{sample_id}.log"
-    threads: 
-        config["pipseeker_threads"]
-    resources:
-        slurm_partition = config["pipseeker_partition"],
-        mem_mb = config["pipseeker_mem"],
-        slurm_time = config["pipseeker_time"]
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting PIPseq processing for {params.sample_id}"
-        echo "Input files: {input.read1}, {input.read2}"
-        echo "Output directory: {params.outdir}"
-        
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate kallisto_bustools
-
-        kb count \
-            --kallisto /private/home/jomojaco/kallisto/build/src/kallisto \
-            -i {params.kallisto_index} \
-            --keep-tmp \
-            -g {params.transcripts_to_genes} \
-            -x 0,0,16:0,16,28:1,0,0 \
-            -o {params.outdir} \
-            -t {threads} \
-            --h5ad \
-            {input.read1} {input.read2} 
-
-        echo "Moving h5ad file to final location"
-        # Move the h5ad file to the expected location
-        mv {params.outdir}/counts_unfiltered/adata.h5ad {output.h5ad}
-        echo "PIPseq processing complete for {params.sample_id}"
-        """
 
 # Process 10X samples with kallisto bustools
 rule map_10x:
@@ -210,7 +128,7 @@ rule map_10x:
     log:
         "logs/10x/{sample_id}.log"
     threads:
-        config["cellranger_threads"] 
+        config["pseudoalign_threads"] 
     resources:
         slurm_partition = config["cellranger_partition"],
         mem_mb = config["cellranger_mem"],
@@ -307,33 +225,6 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
         echo "Compressing filtered h5ad file"
         gzip {input.h5ad}
         echo "Cell cycle annotation complete for {wildcards.sample_id}"
-        """
-
-rule combine_files_by_condition_platform:
-    input:
-        input_files = lambda wildcards: expand("results/annotated_h5ad/{condition}-{replicate}_{seq_platform}.h5ad", 
-                                              condition=wildcards.condition, 
-                                              replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
-                                              seq_platform=wildcards.seq_platform)
-    output:
-        combined = "results/combined/{condition}_{seq_platform}.h5ad"
-    params:
-        combine_script = config["combine_script"],
-        sample = '{condition}_{seq_platform}',  # Remove {replicate} since you're combining replicates
-        fig_dir = 'results/combined/{condition}_{seq_platform}'  # Remove {replicate}
-    log:
-        "logs/combine/{condition}_{seq_platform}.log"
-    threads: 
-        config["combine_threads"]
-    resources:
-        slurm_partition = config["combine_partition"],
-        mem_mb = config["combine_mem"],
-        slurm_time = config["combine_time"]
-    shell:
-        """
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-        python {params.combine_script} --files {input.input_files} --out_path {output.combined} --fig_dir {params.fig_dir} --sample {params.sample} --batch_key batch --min_cells 3 --min_genes 200
         """
 
 ##################################################################
@@ -627,49 +518,6 @@ rule extract_abundant_16s:
         echo "Abundant sequence extraction complete"
         """
 
-rule integrate_uninfected:
-    input:
-        files = expand("results/filtered_h5ad/{sample_id}.h5ad", sample_id=[s for s in SAMPLE_IDS if "DOX" in s and "SV" not in s]),
-    output:
-        integrated = "results/integrated/integrated_uninfected.h5ad",
-    params:
-        files        = "results/filtered_h5ad/*DOX-Ctrl*.h5ad",
-        script       = config["integrate_script"],
-        sample       = "JW18DOX-Ctrl",
-        fig_dir      = "results/integrated/figures_uninfected",
-        out_path     = "results/integrated/integrated_uninfected.h5ad",
-        resolution   = '0.3',
-    log:
-        "logs/integrate/integrate_uninfected.log"   
-    threads:
-        config.get("integrate_threads", 16)
-    resources:
-        slurm_partition = config.get("integrate_partition", "medium"),
-        mem_mb          = config.get("integrate_mem", 128000),
-        slurm_time      = config.get("integrate_time", "8:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting integration of uninfected samples"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        python {params.script} \
-            --files {params.files} \
-            --sample {params.sample} \
-            --batch_key batch \
-            --min_cells 3 \
-            --min_genes 200 \
-            --n_pcs 30 \
-            --resolution {params.resolution} \
-            --out_path {params.out_path} \
-            --fig_dir {params.fig_dir} \
-            --resolution {params.resolution} 
-            
-        echo "Integration of uninfected samples complete"
-        """
-
 rule integrate: 
     input:
         files = expand("results/filtered_h5ad/{sample_id}.h5ad", sample_id=SAMPLE_IDS)
@@ -713,262 +561,6 @@ rule integrate:
         echo "Integration complete"
         """
 
-rule cell_cycle_analysis_uninfected:
-    input:
-        h5ad = "results/integrated/integrated_uninfected.h5ad",
-    output:
-        annotated_h5ad = "results/integrated/integrated_uninfected_with_cellcycle.h5ad",
-    params:
-        script = config["cell_cycle_script"]
-    log:
-        "logs/cellcycle/cyclum_uninfected.log"
-    threads:
-        config["cell_cycle_threads"]
-    resources:
-        slurm_partition = config["cell_cycle_partition"],
-        mem_mb = config["cell_cycle_mem"],
-        slurm_time = config["cell_cycle_time"]
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting cell cycle annotation for Uninfected samples"
-        echo "Input file: {input.h5ad}"
-        
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {CYCLUM_ENV}
-
-        python {params.script} \
-            --input {input.h5ad} \
-            --output {output.annotated_h5ad}
-        
-        """
-
-rule cyclum_analysis_uninfected:
-    input:
-        h5ad = "results/integrated/integrated_uninfected_with_cellcycle.h5ad",
-    output:
-        annotated    = directory("results/integrated/integrated_uninfected_with_cellcycle_annotated"),
-        result       = "results/integrated/integrated_uninfected_with_cellcycle_annotated/JW18_uninfected_cyclum_annotated.h5ad",
-        # umap_dir     = directory("results/integrated/integrated_uninfected_with_cellcycle_annotated/JW18_uninfected_umap_per_gene"),
-        # cc_stats     = "results/integrated/integrated_uninfected_with_cellcycle_annotated/JW18_uninfected_cc_cluster_stats.csv",
-        # de_genes     = "results/integrated/integrated_uninfected_with_cellcycle_annotated/JW18_uninfected_validation_de_genes.csv",
-    params:
-        script       = config["cyclum_analysis_script"],
-        n_top_genes  = config.get("cyclum_n_top_genes", 5),
-        n_umap_genes = config.get("cyclum_n_umap_genes", 6),
-    log:
-        "logs/cellcycle/cyclum_uninfected.log"
-    threads:
-        config["cell_cycle_threads"]
-    resources:
-        slurm_partition = config["cell_cycle_partition"],
-        mem_mb          = config["cell_cycle_mem"],
-        slurm_time      = config["cell_cycle_time"]
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting cell cycle annotation for Uninfected samples"
-        echo "Input file: {input.h5ad}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {CYCLUM_ENV}
-
-        python {params.script} \
-            --input {input.h5ad} \
-            --output {output.annotated} \
-            --sample JW18_uninfected \
-            --save-h5ad \
-            --skip-cyclum \
-            --n-top-genes {params.n_top_genes} \
-            --n-umap-genes {params.n_umap_genes}
-        """
-
-rule cell_cycle_analysis:
-    input:
-        h5ad = rules.integrate.output.integrated
-    output:
-        annotated_h5ad = "results/integrated/integrated_with_cellcycle.h5ad",
-        flag           = touch("results/cellcycle/.done")
-    params:
-        script  = config["cellcycle_script"],
-        fig_dir = "results/cellcycle",
-        titer_col  = config.get("continuous_var", "wolbachia_titer")
-    log:
-        "logs/cellcycle/cellcycle.log"
-    threads:
-        config.get("cellcycle_threads", 4)
-    resources:
-        slurm_partition = config.get("cellcycle_partition", "medium"),
-        mem_mb          = config.get("cellcycle_mem", 32000),
-        slurm_time      = config.get("cellcycle_time", "2:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting cell cycle analysis"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        python {params.script} \
-            --input        {input.h5ad} \
-            --output       {params.fig_dir} \
-            --sample       wMel \
-            --titer-analysis --titer-col {params.titer_col} \
-            --save-output
-
-        echo "Cell cycle analysis complete"
-        """
-
-rule project_to_cell_cycle:
-    input:
-        query_h5ad = "results/integrated/integrated_with_cellcycle.h5ad",
-        ref_h5ad   = "results/integrated/integrated_uninfected_with_cellcycle.h5ad"
-    output:
-        projected_h5ad = "results/integrated/integrated_by_cellcycle.h5ad",
-        flag           = touch("results/cellcycle_projection/.done")
-    params:
-        script = config["project_cell_cycle_script"]
-    log:
-       "logs/cellcycle/projection.log"
-    threads:
-        config.get("cellcycle_projection_threads", 4)
-    resources:
-        slurm_partition = config.get("cellcycle_projection_partition", "medium"),
-        mem_mb          = config.get("cellcycle_projection_mem", 32000),
-        slurm_time      = config.get("cellcycle_projection_time", "2:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting cell cycle projection"   
-
-        mamba activate scanpy 
-
-        python {params.script} \
-            --query {input.query_h5ad} \
-            --ref {input.ref_h5ad} \
-            --out_path {output.projected_h5ad}
-        """
-
-rule cluster_marker_pathway:
-    input:
-        h5ad    = "results/integrated/integrated_with_cellcycle.h5ad",
-        mapping = config["transcripts_to_genes"]
-    output:
-        markers_top50 = "results/cluster_marker_pathway/wolbachia_infection_markers_top50.csv",
-    params:
-        script     = config["cluster_marker_pathway_script"],
-        output_dir = "results/cluster_marker_pathway",
-        sample     = "wolbachia_infection",          # ← add this
-        method     = config.get("cluster_marker_de_method", "wilcoxon"),
-        top_n      = config.get("cluster_marker_top_n", 100)
-    log:
-        "logs/cluster_marker_pathway.log"
-    threads:
-        config.get("cluster_marker_threads", 8)
-    resources:
-        slurm_partition = config.get("cluster_marker_partition", "medium"),
-        mem_mb          = config.get("cluster_marker_mem", 64000),
-        slurm_time      = config.get("cluster_marker_time", "8:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting cluster marker and pathway analysis for {params.sample}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        python {params.script} \
-            --input   {input.h5ad} \
-            --output  {params.output_dir} \
-            --sample  {params.sample} \
-            --mapping {input.mapping} 
-            
-        echo "Cluster marker and pathway analysis complete"
-        """
-
-rule run_sceptic:
-    input:
-        h5ad = "results/nmf_programs/adata_with_programs.h5ad",
-    output:
-        results = "results/sceptic/{sample}/sceptic_results_{sample}.csv",
-        stats   = "results/sceptic/{sample}/sceptic_stats_{sample}.csv",
-        h5ad    = "results/sceptic/{sample}/sceptic_{sample}.h5ad", 
-        flag    = touch("results/sceptic/{sample}/.done")
-    params:
-        script        = config["sceptic_script"],
-        fig_dir       = "results/sceptic/{sample}",
-        pca_key       = config.get("sceptic_pca_key", "X_pca_harmony"),
-        timepoint_col = config.get("sceptic_timepoint_col", "timepoint_numeric"),
-        method        = config.get("sceptic_method", "xgboost"),
-        n_bins        = config.get("sceptic_n_bins", 10)
-    log:
-        "logs/sceptic/{sample}.log"
-    threads:
-        config.get("sceptic_threads", 8)
-    resources:
-        slurm_partition = config.get("sceptic_partition", "medium"),
-        mem_mb          = config.get("sceptic_mem", 64000),
-        slurm_time      = config.get("sceptic_time", "4:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting SCEPTIC analysis for sample: {wildcards.sample}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        python {params.script} \
-            --h5ad          {input.h5ad} \
-            --sample        {wildcards.sample} \
-            --fig_dir       {params.fig_dir} \
-            --pca_key       {params.pca_key} \
-            --timepoint_col {params.timepoint_col} \
-            --method        {params.method} \
-            --n_bins        {params.n_bins}
-
-        echo "SCEPTIC analysis complete for {wildcards.sample}"
-        """
-rule pseudotime_gene_importance:
-    input:
-        h5ad        = "results/sceptic/{sample}/sceptic_{sample}.h5ad",
-        done        = "results/sceptic/{sample}/.done",
-        program_dir = "results/nmf_programs/.done"
-    output:
-        summary  = "results/pseudotime_genes/{sample}/summary_dynamic_genes.csv",
-        spearman = "results/pseudotime_genes/{sample}/spearman_sig.csv",
-        counts   = "results/pseudotime_genes/{sample}/tradeseq_inputs/counts_genesXcells.csv",
-        pt       = "results/pseudotime_genes/{sample}/tradeseq_inputs/pseudotime.csv",
-        flag     = touch("results/pseudotime_genes/{sample}/.done")
-    params:
-        script      = config.get("pseudotime_gene_script",
-                          "scripts/method_comparison/pseudotime_gene_importance.py"),
-        outdir      = "results/pseudotime_genes/{sample}",
-        program_dir = "results/nmf_programs",
-    log:
-        "logs/pseudotime_genes/{sample}.log"
-    threads:
-        config.get("pseudotime_gene_threads", 8)
-    resources:
-        slurm_partition = config.get("pseudotime_gene_partition", "medium"),
-        mem_mb          = config.get("pseudotime_gene_mem", 64000),
-        slurm_time      = config.get("pseudotime_gene_time", "2:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting pseudotime gene importance for {wildcards.sample}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        python {params.script} \
-            --h5ad        {input.h5ad} \
-            --outdir      {params.outdir} \
-            --program-dir {params.program_dir}
-
-        echo "Pseudotime gene importance complete for {wildcards.sample}"
-        """
-
-
 ##################################################################
 # Gene program and pathway analysis rules
 ##################################################################
@@ -980,7 +572,7 @@ rule nmf_programs:
         summary = "results/nmf_programs/SUMMARY.txt",
         flag = touch("results/nmf_programs/.done")
     params:
-        script = config.get("nmf_script", "../snakemake_scripts/analysis/nmf_programs.py"),
+        script = config.get("nmf_script"),
         output_dir = "results/nmf_programs",
         n_programs = config.get("n_programs", 15),
         n_top_genes = config.get("n_top_genes", 2000),
@@ -1024,8 +616,7 @@ rule nmf_continuous_var:
         summary = "results/nmf_continuous_var/SUMMARY.txt",
         flag = touch("results/nmf_continuous_var/.done")
     params:
-        script = config.get("nmf_continuous_script", 
-            "../snakemake_scripts/analysis/nmf_continuous_var.py"),
+        script = config.get("nmf_continuous_script"),
         output_dir = "results/nmf_continuous_var",
         continuous_var = config.get("continuous_var", None),  # Auto-detect if None
         flybase_annotation = config.get("flybase_annotation", 
@@ -1062,8 +653,7 @@ rule nmf_categorical_var:
         comparison = "results/nmf_categorical_var/program_comparison.csv",
         flag = touch("results/nmf_categorical_var/.done")
     params:
-        script = config.get("nmf_categorical_script", 
-            "../snakemake_scripts/analysis/nmf_categorical_var.py"),
+        script = config.get("nmf_categorical_script"),
         output_dir = "results/nmf_categorical_var",
         categorical_var = config.get("categorical_var", None)  # Auto-detect if None
     log:
@@ -1098,8 +688,7 @@ rule nmf_annotate_programs:
     output:
         output  = "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
     params:
-        script       = config.get("nmf_annotate_script",
-                           "../snakemake_scripts/analysis/annotate_nmf_programs.py"),
+        script       = config.get("nmf_annotate_script"),
         output_dir   = "results/nmf_annotate_programs",
         program_dir  = "results/nmf_programs",
         sample_name  = config.get("nmf_annotate_sample", "wolbachia_infection"),
@@ -1140,168 +729,4 @@ rule nmf_annotate_programs:
             {params.skip_fly}
 
         echo "NMF program annotation complete"
-        """
-rule run_tradeseq:
-    input:
-        counts = "results/pseudotime_genes/{sample}/tradeseq_inputs/counts_genesXcells.csv",
-        pt     = "results/pseudotime_genes/{sample}/tradeseq_inputs/pseudotime.csv",
-    output:
-        assoc  = "results/pseudotime_genes/{sample}/tradeseq_association.csv",
-        sve    = "results/pseudotime_genes/{sample}/tradeseq_startvsend.csv",
-        sce    = "results/pseudotime_genes/{sample}/tradeseq_sce.rds",
-        flag   = touch("results/pseudotime_genes/{sample}/tradeseq.done")
-    params:
-        script = "scripts/method_comparison/run_tradeseq.R",
-        outdir = "results/pseudotime_genes/{sample}",
-        nknots = config.get("tradeseq_nknots", 6),
-    log:
-        "logs/tradeseq/{sample}.log"
-    threads:
-        config.get("tradeseq_threads", 16)
-    resources:
-        slurm_partition = config.get("tradeseq_partition", "medium"),
-        mem_mb          = config.get("tradeseq_mem", 128000),
-        slurm_time      = config.get("tradeseq_time", "12:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting tradeSeq for {wildcards.sample}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        Rscript {params.script} \
-            --counts   {input.counts} \
-            --pt       {input.pt} \
-            --outdir   {params.outdir} \
-            --nknots   {params.nknots} \
-            --nworkers {threads}
-
-        echo "tradeSeq complete for {wildcards.sample}"
-        """
-
-"""
-# Testing commands for new rules:
-python scripts/method_comparison/validate_pipseq.py \
-    --files results/annotated_h5ad/*.h5ad \
-    --out_path results/method_comparison/all_conditions_all_methods.h5ad \
-    --fig_dir results/method_comparison/all_conditions \
-    --sample all_conditions \
-    --batch_key batch \
-    --min_cells 3 \
-    --min_genes 200 \
-    --n_pcs 30
-
-
-python scripts/method_comparison/cell_cycle_association.py \
-    --input results/method_comparison/all_conditions_all_methods.h5ad \
-    --output results/cellcycle_analysis \
-    --sample all_conditions \
-    --run-cyclum \
-    --force-retrain \
-    --save-output
-"""
-
-# Count reads aligning to Wolbachia 16S rRNA (GQX67_05945) vs total reads per sample
-rule count_16s_reads:
-    input:
-        r2  = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
-        ref = config["ref_fasta"]
-    output:
-        counts = "results/rRNA_analysis/read_counts/{sample_id}/{gene}_read_counts.txt"
-    wildcard_constraints:
-        # Only allow sample_ids that currently exist in the dataframe
-        sample_id = "|".join(SAMPLE_IDS)
-    params:
-        region = config.get("rRNA_16S_region", "GQX67_05945::NZ_CP046925.1:1167785-1169290")
-    log:
-        "logs/count_16s/{sample_id}_{gene}.log"
-    threads: 8
-    resources:
-        slurm_partition = "medium",
-        mem_mb          = 16000,
-        slurm_time      = "2:00:00"
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Counting 16S vs total reads for {wildcards.sample_id} - {wildcards.gene}"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate sra-tools
-
-        mkdir -p results/rRNA_analysis/read_counts/{wildcards.sample_id}
-
-        SORTED=results/rRNA_analysis/read_counts/{wildcards.sample_id}/all_aligned.bam
-
-        # Align R2 to the combined Dmel + wMel rRNA reference, sort, index
-        bwa mem -t {threads} {input.ref} {input.r2} | \
-            samtools view -Sb | \
-            samtools sort -@ {threads} -o $SORTED
-        samtools index $SORTED
-
-        # Reads mapped to the 16S region (primary alignments only, excludes
-        # unmapped/secondary/supplementary via -F 0x904)
-        SIXTEEN_S=$(samtools view -c -F 0x904 $SORTED "{params.region}")
-
-        # Total reads in the input (all records in the BAM)
-        TOTAL=$(samtools view -c $SORTED)
-
-        # Mapped reads only (optional denominator if you prefer mapped over total)
-        MAPPED=$(samtools view -c -F 0x4 $SORTED)
-
-        # Write tab-delimited summary
-        printf "sample\\tgene\\tregion\\tsixteenS_reads\\ttotal_reads\\tmapped_reads\\n" > {output.counts}
-        printf "%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
-            "{wildcards.sample_id}" "{wildcards.gene}" "{params.region}" \
-            "$SIXTEEN_S" "$TOTAL" "$MAPPED" >> {output.counts}
-
-        echo "Done. 16S=$SIXTEEN_S  total=$TOTAL  mapped=$MAPPED"
-        """
-
-rule validate_platform_concordance:
-    input:
-        h5ad = "results/integrated/integrated.h5ad"
-    output:
-        confusion  = "results/validate_pipseq/label_transfer_confusion_matrix.csv",
-        jaccard    = "results/validate_pipseq/marker_gene_jaccard_matrix.csv",
-        pseudobulk = "results/validate_pipseq/pseudobulk_spearman_correlation.csv"
-    params:
-        script          = config.get("validate_platform_script",
-                              "snakemake_scripts/analysis/validate_platform_concordance.py"),
-        outdir          = "results/validate_pipseq",
-        embedding       = config.get("validate_platform_embedding", "X_pca_harmony"),
-        cluster_key     = config.get("validate_platform_cluster_key", "leiden"),
-        platform_key    = config.get("validate_platform_method_key", "method"),
-        n_markers       = config.get("validate_platform_n_markers", 50),
-        n_neighbors_knn = config.get("validate_platform_knn_neighbors", 15),
-        counts_source   = config.get("validate_platform_counts_source", "raw")
-    log:
-        "logs/validate_platform/validate_platform_concordance.log"
-    threads:
-        config.get("validate_platform_threads", 8)
-    resources:
-        slurm_partition = config.get("validate_platform_partition", "medium"),
-        mem_mb          = config.get("validate_platform_mem", 64000),
-        slurm_time      = config.get("validate_platform_time", "4:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Starting platform concordance validation"
-
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-
-        mkdir -p {params.outdir}
-
-        python {params.script} \
-            --h5ad {input.h5ad} \
-            --outdir {params.outdir} \
-            --embedding {params.embedding} \
-            --cluster_key {params.cluster_key} \
-            --platform_key {params.platform_key} \
-            --n_markers {params.n_markers} \
-            --n_neighbors_knn {params.n_neighbors_knn} \
-            --counts_source {params.counts_source}
-
-        echo "Platform concordance validation complete"
         """
