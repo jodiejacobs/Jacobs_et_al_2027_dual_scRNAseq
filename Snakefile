@@ -579,7 +579,7 @@ rule nmf_programs:
         organism = config.get("organism", "Fly"),
         gene_id_type = config.get("gene_id_type", "flybase"),
         flybase_annotation = config.get("flybase_annotation",
-            "../reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
+            "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
     log:
         "logs/nmf/nmf_programs.log"
     threads:

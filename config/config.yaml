@@ -7,15 +7,14 @@ samples_file: "config/samples.csv"
 scanpy_env: '/private/groups/russelllab/jodie/miniforge3/envs/scanpy'
 cyclum_env: '/private/groups/russelllab/jodie/miniforge3/envs/cyclum'
 
-# Software paths
+# Alignment paths
 fastq_dir: "/private/groups/russelllab/jodie/sequencing_data/scRNAseq/PIP-seq_cells/Jacobs_10524_241203B9" # Add the path to the directory containing the FASTQ files for pipseq
-combine_script: "snakemake_scripts/analysis/integrate_h5ad_by_condition.py" 
 kallisto_index: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/transcripts.idx" 
+
+# Initial scripts
 filter_script: "snakemake_scripts/filtering/kallisto_bustools_qcfilter_adata_no_pybiomart.py" # Changes to remove biomart dependancy on 3/25/26
 cell_cycle_script: "snakemake_scripts/analysis/cyclum_cell_cycle.py"
-cyclum_analysis_script: "snakemake_scripts/analysis/cyclum_cellcycle_analysis.py"
 transcripts_to_genes: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/transcripts_to_genes.txt"
-project_cell_cycle_script: "scripts/method_comparison/integrate_by_ref.py"
 
 # Compute resources for filter
 filter_threads: 128
@@ -33,7 +32,6 @@ cell_cycle_partition: "medium"
 # Extract 16S reads
 target_gene: "GQX67_05945"
 rRNA_regions: "reference/rRNA/rRNA_regions.bed"
-extract_gene_script: "snakemake_scripts/filter_bus_by_gene.py"
 ref_fasta: "reference/rRNA/rRNA_reference_Dmel_wMel.fasta"
 ref_bed: "reference/rRNA/Dmel_wMel_rRNA.gene.bed"
 plot_coverage_script: "snakemake_scripts/rRNA_analysis/plot_coverage.py"
@@ -47,7 +45,6 @@ integrate_partition: "medium"
 integrate_mem: 128000
 integrate_time: "8:00:00"
 
-cellcycle_script: "scripts/method_comparison/scanpy_cellcycle_analysis_v2.py"
 cellcycle_threads: 4
 cellcycle_partition: "medium"
 cellcycle_mem: 32000
