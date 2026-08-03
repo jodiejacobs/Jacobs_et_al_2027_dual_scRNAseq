@@ -60,11 +60,10 @@ print(f"Condition-Platform combinations: {CONDITION_PLATFORM_COMBOS}")
 
 # Helper function to get fastq files for a sample
 def get_fastq_files(sample_id):
-    """Get R1 and R2 fastq files for a sample."""
+    """Get L005/L006 R1/R2 fastq paths for a sample."""
     sample_info = samples_df.loc[sample_id]
-    r1_path = sample_info[3]  # R1 path is in column 3 (0-indexed)
-    r2_path = sample_info[4]  # R2 path is in column 4 (0-indexed)
-    return r1_path, r2_path
+    return sample_info[3], sample_info[4], sample_info[5], sample_info[6]
+    # [0]=L005_R1  [1]=L005_R2  [2]=L006_R1  [3]=L006_R2
 
 # Helper function to get replicates for a condition-seq_platform combo
 def get_replicates_for_combo(condition, seq_platform):
@@ -134,12 +133,12 @@ rule map_10x:
         """
         exec > {log} 2>&1
         echo "Starting 10x processing for {params.sample_id}"
-        echo "Input files: {input.read1}, {input.read2}"
+        echo "Input files: {input.read1_1} {input.read2_1} {input.read1_2} {input.read2_2}"
         echo "Output directory: {params.outdir}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate kallisto_bustools
-        
+
         kb count \
             --kallisto /private/home/jomojaco/kallisto/build/src/kallisto \
             -i {params.kallisto_index} \
@@ -149,10 +148,9 @@ rule map_10x:
             -o {params.outdir} \
             -t {threads} \
             --h5ad \
-            {input.read1} {input.read2} 
+            {input.read1_1} {input.read2_1} {input.read1_2} {input.read2_2}
 
         echo "Moving h5ad file to final location"
-        # Move the h5ad file to the expected locatio
         mv {params.outdir}/counts_unfiltered/adata.h5ad {output.h5ad}
         echo "10x processing complete for {params.sample_id}"
         """

@@ -41,6 +41,10 @@ parser.add_argument("--scrublet_max_cells", type=int, default=10000,
                     help="Max cells for Scrublet subsampling (default: 10000)")
 parser.add_argument("--n_pcs_scrublet",     type=int, default=20,
                     help="PCs for Scrublet (default: 20)")
+parser.add_argument("--min_genes",        type=int, default=1,
+                    help="Minimum number of genes to use (default: 1)")
+parser.add_argument("--min_cells",     type=int, default=1,
+                    help="Minimum number of cells to use (default: 1)")
 
 args   = parser.parse_args()
 input  = args.input
@@ -350,7 +354,7 @@ def qc_plots(adata, fig_dir, svd_subsample=5000):
     print(f"Knee plot: {num_cells:,} cells above {cutoff} UMI threshold")
 
     # ── Filter cells ──────────────────────────────────────────────────────────
-    sc.pp.filter_cells(adata, min_genes=200)
+    sc.pp.filter_cells(adata, min_genes=args.min_genes)
     sc.pp.filter_cells(adata, min_counts=knee[num_cells])
     print(f"After knee filtering: {adata.n_obs} cells")
 
@@ -372,7 +376,7 @@ def qc_plots(adata, fig_dir, svd_subsample=5000):
     plt.close(fig)
 
     # ── Filter genes ──────────────────────────────────────────────────────────
-    sc.pp.filter_genes(adata, min_cells=3)
+    sc.pp.filter_genes(adata, min_cells=args.min_cells)
     print(f"After gene filtering: {adata.n_vars} genes")
 
     sc.pl.violin(adata, ['n_genes', 'n_counts', 'percent_mito'],
