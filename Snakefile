@@ -1,6 +1,6 @@
 # Snakefile for processing scRNA-seq data with Snakemake and kallisto bustools
 # mamba activate snakemake #Needs snakemake>=9.0
-# snakemake --executor slurm --default-resources slurm_partition=medium slurm_time="2:00:00" runtime=120 mem_mb=8000 -j 16 -n 
+# snakemake --executor slurm --default-resources slurm_partition=medium slurm_time="2:00:00" runtime=120 mem_mb=8000 -j 16 -n
 
 import pandas as pd
 import os
@@ -9,6 +9,9 @@ import os
 configfile: "config/config.yaml"
 SCANPY_ENV = config["scanpy_env"]
 CYCLUM_ENV = config["cyclum_env"]
+
+# Run small, quick summary rules locally instead of submitting them as slurm jobs
+localrules: summarize_inspect_10x
 
 
 # Load samples information
@@ -22,8 +25,11 @@ samples_df.index = [(row[0] + "-" + str(row[2]) + "_" + row[1]) for _, row in sa
 SAMPLE_IDS = samples_df.index.tolist()
 
 CONDITIONS = samples_df[0].unique().tolist()
-REPLICATES = samples_df[2].unique().tolist() 
+REPLICATES = samples_df[2].unique().tolist()
 SEQUENCING_PLATFORMS = samples_df[1].unique().tolist()
+
+# 10x sample IDs (used for the bustools inspect QC rules below)
+SAMPLE_IDS_10X = [s for s in SAMPLE_IDS if s.endswith("_10x")]
 
 # Create a dictionary to track which condition-seq_platform combinations exist
 # and what replicates are available for each
@@ -32,7 +38,7 @@ for sample_id in SAMPLE_IDS:
     condition = samples_df.loc[sample_id][0]
     seq_platform = samples_df.loc[sample_id][1]
     replicate = samples_df.loc[sample_id][2]
-    
+
     key = (condition, seq_platform)
     if key not in CONDITION_PLATFORM_REPS:
         CONDITION_PLATFORM_REPS[key] = []
@@ -94,7 +100,10 @@ rule all:
                seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
         # Integration
         "results/integrated/integrated.h5ad",
- 
+
+        # Barcode/UMI QC across 10x samples (post barcode-correction)
+        "results/10x/inspect_summary.tsv",
+
         # # Gene program and pathway analysis
         # "results/nmf_programs/.done",
         # "results/nmf_continuous_var/.done",
@@ -143,6 +152,7 @@ rule map_10x:
             --kallisto /private/home/jomojaco/kallisto/build/src/kallisto \
             -i {params.kallisto_index} \
             -g {params.transcripts_to_genes} \
+            --mm \
             --keep-tmp \
             -x 0,0,16:0,16,28:1,0,0 \
             -o {params.outdir} \
@@ -154,6 +164,77 @@ rule map_10x:
         mv {params.outdir}/counts_unfiltered/adata.h5ad {output.h5ad}
         echo "10x processing complete for {params.sample_id}"
         """
+
+##################################################################
+# Barcode/UMI QC rules
+##################################################################
+# Rule: Inspect the corrected + re-sorted BUS file for each 10x sample.
+# kb count (run with --keep-tmp above) leaves output.s.c.s.bus (sorted ->
+# corrected -> re-sorted) in the tmp/ dir, and auto-copies the 10x on-list
+# to whitelist.txt in the sample's outdir. This gives post-correction
+# barcode/UMI/on-list stats, as opposed to inspect.json (which kb count
+# generates automatically on the pre-correction sorted bus file).
+rule inspect_10x_corrected:
+    input:
+        h5ad = "results/h5ad_results/{sample_id}.h5ad"  # ensures map_10x has finished
+    output:
+        json = "results/10x/{sample_id}/inspect_corrected.json"
+    params:
+        bus = "results/10x/{sample_id}/tmp/output.s.c.s.bus",
+        whitelist = "results/10x/{sample_id}/whitelist.txt"
+    wildcard_constraints:
+        sample_id = ".*_10x"
+    log:
+        "logs/inspect_10x/{sample_id}.log"
+    threads: 1
+    resources:
+        slurm_partition = "medium",
+        mem_mb = 8000,
+        slurm_time = "30:00"
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Inspecting corrected BUS file for {wildcards.sample_id}"
+
+        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        conda activate kallisto_bustools
+
+        bustools inspect -w {params.whitelist} -o {output.json} {params.bus}
+
+        echo "Inspect complete for {wildcards.sample_id}"
+        """
+
+# Rule: Summarize inspect_corrected.json across all 10x samples into one table
+rule summarize_inspect_10x:
+    input:
+        jsons = expand("results/10x/{sample_id}/inspect_corrected.json", sample_id=SAMPLE_IDS_10X)
+    output:
+        summary = "results/10x/inspect_summary.tsv"
+    log:
+        "logs/inspect_10x/summarize.log"
+    run:
+        import json
+
+        rows = []
+        for sample_id, jf in zip(SAMPLE_IDS_10X, input.jsons):
+            with open(jf) as fh:
+                d = json.load(fh)
+            rows.append({
+                "sample_id": sample_id,
+                "numBarcodes": d.get("numBarcodes"),
+                "numReads": d.get("numReads"),
+                "meanReadsPerBarcode": d.get("meanReadsPerBarcode"),
+                "medianReadsPerBarcode": d.get("medianReadsPerBarcode"),
+                "numBarcodeUMIs": d.get("numBarcodeUMIs"),
+                "meanUMIsPerBarcode": d.get("meanUMIsPerBarcode"),
+                "medianUMIsPerBarcode": d.get("medianUMIsPerBarcode"),
+                "percentageBarcodesOnOnlist": d.get("percentageBarcodesOnOnlist"),
+                "percentageReadsOnOnlist": d.get("percentageReadsOnOnlist"),
+            })
+
+        df = pd.DataFrame(rows)
+        df.to_csv(output.summary, sep="\t", index=False)
+        print(df.to_string(index=False))
 
 # Filter h5ad output and output qc:
 rule filter_h5ad:
@@ -175,14 +256,14 @@ rule filter_h5ad:
         exec > {log} 2>&1
         echo "Starting filtering for {wildcards.sample_id}"
         echo "Input file: {input}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
         python {params.script} \
             --input {input} \
-            --output {output.filtered_h5ad} 
-        
+            --output {output.filtered_h5ad}
+
         echo "Compressing original h5ad file"
         gzip {input}
         echo "Filtering complete for {wildcards.sample_id}"
@@ -191,7 +272,7 @@ rule filter_h5ad:
 # Cell cycle Annotation
 rule annotate_cell_cycle: # This needs the cyclum conda environment
     input:
-        h5ad = "results/filtered_h5ad/{sample_id}.h5ad" # Output of filtered script 
+        h5ad = "results/filtered_h5ad/{sample_id}.h5ad" # Output of filtered script
     output:
         annotated_h5ad = "results/annotated_h5ad/{sample_id}.h5ad"
     params:
@@ -209,14 +290,14 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
         exec > {log} 2>&1
         echo "Starting cell cycle annotation for {wildcards.sample_id}"
         echo "Input file: {input.h5ad}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate {CYCLUM_ENV}
 
         python {params.script} \
             --input {input.h5ad} \
             --output {output.annotated_h5ad}
-        
+
         echo "Compressing filtered h5ad file"
         gzip {input.h5ad}
         echo "Cell cycle annotation complete for {wildcards.sample_id}"
@@ -246,32 +327,32 @@ rule align_gene_reads:
         """
         # exec > {log} 2>&1
         echo "Starting BWA alignment for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
 
         # Make the directory
         mkdir -p results/rRNA_analysis/alignment/{wildcards.sample_id}
-        
+
         # Align with BWA MEM, convert to BAM, sort, and filter for regions
         bwa mem -t {threads} {input.ref} {input.r2} | \
             samtools view -Sb | \
             samtools sort -@ {threads} -o results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
-        
+
         samtools index results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
-        
+
         # Extract reads for this specific gene using the full chromosome name
         CHROM=$(samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam | grep "^{wildcards.gene}::" | cut -f1)
-        
+
         if [ -z "$CHROM" ]; then
             echo "ERROR: Gene {wildcards.gene} not found"
             samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
             exit 1
         fi
-        
+
         samtools view -b results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam "$CHROM" -o {output.bam}
         samtools index {output.bam}
-        
+
         echo "Alignment complete for {wildcards.sample_id} - {wildcards.gene}"
         echo "Filtered to $(samtools view -c {output.bam}) reads in target regions"
         """
@@ -294,12 +375,12 @@ rule calculate_coverage:
         """
         exec > {log} 2>&1
         echo "Calculating coverage for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         samtools depth {input.bam} > {output.cov}
-        
+
         echo "Coverage calculation complete"
         """
 
@@ -321,13 +402,13 @@ rule extract_16s_sequences:
         """
         exec > {log} 2>&1
         echo "Extracting 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         # Extract reads mapping to 16S region
         samtools fasta {input.bam} > {output.fasta}
-        
+
         echo "16S extraction complete"
         """
 
@@ -350,10 +431,10 @@ rule blast_16s:
         """
         exec > {log} 2>&1
         echo "Running BLAST for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         blastn -db {params.db} \
             -query {input.fasta} \
             -out {output.blast} \
@@ -361,7 +442,7 @@ rule blast_16s:
             -outfmt 6 \
             -max_target_seqs 5 \
             -evalue 1e-5
-        
+
         echo "BLAST complete"
         """
 
@@ -382,13 +463,13 @@ rule summarize_blast:
         """
         exec > {log} 2>&1
         echo "Summarizing BLAST results for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         # Summarize: count hits per subject, track best identity
-        awk '{{count[$2]++; if($3 > best[$2]) best[$2]=$3}} 
+        awk '{{count[$2]++; if($3 > best[$2]) best[$2]=$3}}
              END {{for(s in count) printf "%6d %s (%.3f%% identity)\\n", count[s], s, best[s]}}' \
             {input.blast} | \
             sort -k1,1nr -k3,3nr > {output.summary}
-        
+
         echo "BLAST summarization complete"
         """
 
@@ -417,18 +498,18 @@ rule plot_coverage_by_group:
         """
         exec > {log} 2>&1
         echo "Plotting coverage for {wildcards.condition}_{wildcards.seq_platform}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         mkdir -p {output.plot_dir}
-        
+
         # Create file list
         echo {input.coverage_files} | tr ' ' '\\n' > {output.plot_dir}/coverage_files.txt
-        
+
         python {params.script} {output.plot_dir}/coverage_files.txt \
             --output-dir {output.plot_dir}
-        
+
         echo "Coverage plotting complete"
         """
 
@@ -457,18 +538,18 @@ rule plot_blast_by_group:
         """
         exec > {log} 2>&1
         echo "Plotting BLAST results for {wildcards.condition}_{wildcards.seq_platform}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         mkdir -p {output.plot_dir}
-        
+
         # Plot each summary file
         for summary in {input.blast_summaries}; do
             echo "Processing $(basename $summary)..."
             python {params.script} "$summary" --output-dir {output.plot_dir}
         done
-        
+
         echo "BLAST plotting complete"
         """
 
@@ -494,13 +575,13 @@ rule extract_abundant_16s:
         """
         exec > {log} 2>&1
         echo "Extracting abundant 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
-        
+
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate sra-tools
-        
+
         # Extract IDs with at least min_reads reads
         awk -v min={params.min_reads} '$1 >= min {{print $2}}' {input.summary} > {output.ids}
-        
+
         # Extract sequences from BLAST database
         if [ -s {output.ids} ]; then
             blastdbcmd -db {params.db} \
@@ -509,17 +590,17 @@ rule extract_abundant_16s:
         else
             echo "No abundant sequences found" > {output.fasta}
         fi
-        
+
         echo "Abundant sequence extraction complete"
         """
 
-rule integrate: 
+rule integrate:
     input:
         files = expand("results/filtered_h5ad/{sample_id}.h5ad", sample_id=SAMPLE_IDS)
     output:
         integrated = "results/integrated/integrated.h5ad"
     params:
-        files         = "results/filtered_h5ad/*.h5ad",   
+        files         = "results/filtered_h5ad/*.h5ad",
         script        = config["integrate_script"],
         sample        = "wolbachia_infection",
         fig_dir       = "results/integrated/figures",
@@ -551,8 +632,8 @@ rule integrate:
             --n_pcs 30 \
             --resolution {params.resolution} \
             --out_path {params.out_path} \
-            --fig_dir {params.fig_dir} 
-            
+            --fig_dir {params.fig_dir}
+
         echo "Integration complete"
         """
 
@@ -614,7 +695,7 @@ rule integrate:
 #         script = config.get("nmf_continuous_script"),
 #         output_dir = "results/nmf_continuous_var",
 #         continuous_var = config.get("continuous_var", None),  # Auto-detect if None
-#         flybase_annotation = config.get("flybase_annotation", 
+#         flybase_annotation = config.get("flybase_annotation",
 #             "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
 #     log:
 #         "logs/nmf/nmf_continuous_var.log"
@@ -628,16 +709,16 @@ rule integrate:
 #         """
 #         exec > {log} 2>&1
 #         echo "Starting NMF continuous variable analysis"
-        
+
 #         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
-        
+
 #         python {params.script} \
 #             --input {input.adata_with_programs} \
 #             --output_dir {params.output_dir} \
 #             --continuous_var {params.continuous_var} \
 #             --flybase_annotation {params.flybase_annotation}
-        
+
 #         echo "NMF continuous variable analysis complete"
 #         """
 
@@ -663,15 +744,15 @@ rule integrate:
 #         """
 #         exec > {log} 2>&1
 #         echo "Starting NMF categorical variable analysis"
-        
+
 #         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
-        
+
 #         python {params.script} \
 #             --input {input.adata_with_programs} \
 #             --output_dir {params.output_dir} \
 #             --categorical_var {params.categorical_var}
-        
+
 #         echo "NMF categorical variable analysis complete"
 #         """
 
