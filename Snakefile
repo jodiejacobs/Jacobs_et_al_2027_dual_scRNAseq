@@ -106,8 +106,10 @@ rule all:
 # Process 10X samples with kallisto bustools
 rule map_10x:
     input:
-        read1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
-        read2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1]
+        read1_1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
+        read1_2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[2],
+        read2_1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
+        read2_2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[3],
     output:
         h5ad = "results/h5ad_results/{sample_id}.h5ad",
         bus = "results/10x/{sample_id}/output.unfiltered.bus",
