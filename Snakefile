@@ -104,6 +104,10 @@ rule all:
         # Barcode/UMI QC across 10x samples (post barcode-correction)
         "results/10x/inspect_summary.tsv",
 
+        # wMel gene capture validation, run on the raw (unfiltered) h5ad
+        expand("results/qc/wMel_gene_capture/{sample_id}_wMel_gene_capture.txt",
+               sample_id=SAMPLE_IDS_10X),
+
         # # Gene program and pathway analysis
         # "results/nmf_programs/.done",
         # "results/nmf_continuous_var/.done",
@@ -168,19 +172,19 @@ rule map_10x:
 ##################################################################
 # Barcode/UMI QC rules
 ##################################################################
-# Rule: Inspect the corrected + re-sorted BUS file for each 10x sample.
-# kb count (run with --keep-tmp above) leaves output.s.c.s.bus (sorted ->
-# corrected -> re-sorted) in the tmp/ dir, and auto-copies the 10x on-list
-# to whitelist.txt in the sample's outdir. This gives post-correction
-# barcode/UMI/on-list stats, as opposed to inspect.json (which kb count
-# generates automatically on the pre-correction sorted bus file).
+# Rule: Inspect the corrected + sorted BUS file for each 10x sample.
+# kb count writes the final corrected+resorted bus directly to
+# {outdir}/output.unfiltered.bus (NOT into tmp/ - the tmp dir only holds
+# the intermediate output.s.bus / output.s.c.bus files along the way).
+# This gives post-correction barcode/UMI/on-list stats, as opposed to
+# inspect.json (which kb count generates automatically on the
+# pre-correction sorted bus file).
 rule inspect_10x_corrected:
     input:
-        h5ad = "results/h5ad_results/{sample_id}.h5ad"  # ensures map_10x has finished
+        bus = "results/10x/{sample_id}/output.unfiltered.bus"
     output:
         json = "results/10x/{sample_id}/inspect_corrected.json"
     params:
-        bus = "results/10x/{sample_id}/tmp/output.s.c.s.bus",
         whitelist = "results/10x/{sample_id}/whitelist.txt"
     wildcard_constraints:
         sample_id = ".*_10x"
@@ -199,7 +203,7 @@ rule inspect_10x_corrected:
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
         conda activate kallisto_bustools
 
-        bustools inspect -w {params.whitelist} -o {output.json} {params.bus}
+        bustools inspect -w {params.whitelist} -o {output.json} {input.bus}
 
         echo "Inspect complete for {wildcards.sample_id}"
         """
@@ -235,6 +239,43 @@ rule summarize_inspect_10x:
         df = pd.DataFrame(rows)
         df.to_csv(output.summary, sep="\t", index=False)
         print(df.to_string(index=False))
+
+# Rule: Validate wMel (Wolbachia) vs Dmel gene capture on the RAW
+# (unfiltered) h5ad, before filter_h5ad has a chance to gzip it.
+rule validate_wMel_gene_capture:
+    input:
+        h5ad = "results/h5ad_results/{sample_id}.h5ad"
+    output:
+        report = "results/qc/wMel_gene_capture/{sample_id}_wMel_gene_capture.txt",
+        csv = "results/qc/wMel_gene_capture/{sample_id}_wMel_gene_capture_wMel_genes.csv"
+    params:
+        script = config.get(
+            "validate_wMel_script",
+            "/private/groups/russelllab/jodie/scRNAseq/Jacobs_et_al_2027_dual_scRNAseq/snakemake_scripts/quality_control/validate_wMel_gene_capture.py"
+        )
+    wildcard_constraints:
+        sample_id = ".*_10x"
+    log:
+        "logs/validate_wMel/{sample_id}.log"
+    threads: 1
+    resources:
+        slurm_partition = "medium",
+        mem_mb = 8000,
+        slurm_time = "30:00"
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Validating wMel gene capture for {wildcards.sample_id}"
+
+        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+
+        python {params.script} \
+            --input {input.h5ad} \
+            --output {output.report}
+
+        echo "wMel gene capture validation complete for {wildcards.sample_id}"
+        """
 
 # Filter h5ad output and output qc:
 rule filter_h5ad:
