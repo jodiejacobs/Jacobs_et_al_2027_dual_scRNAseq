@@ -143,7 +143,7 @@ rule map_10x:
             -i {params.kallisto_index} \
             -g {params.transcripts_to_genes} \
             --keep-tmp \
-            -x 10xv3 \
+            -x 0,0,16:0,16,28:1,0,0 \
             -o {params.outdir} \
             -t {threads} \
             --h5ad \
