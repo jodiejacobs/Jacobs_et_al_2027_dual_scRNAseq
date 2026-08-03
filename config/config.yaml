@@ -23,6 +23,12 @@ filter_mem: 1000000  # MB
 filter_time: "12:00:00"  # HH:MM:SS
 filter_partition: "medium"  # SLURM partition for filter jobs
 
+# Compute resources for map_10x (kb count pseudoalignment)
+pseudoalign_threads: 128
+pseudoalign_partition: "medium"
+pseudoalign_mem: 1000000  # MB
+pseudoalign_time: "12:00:00"  # HH:MM:SS
+
 # Compute resources for cell cycle
 cell_cycle_threads: 64           # Instead of 128
 cell_cycle_mem: 1000000           # Instead of 32000  

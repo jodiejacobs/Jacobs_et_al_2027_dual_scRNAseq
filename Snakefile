@@ -75,12 +75,7 @@ def get_replicates_for_combo(condition, seq_platform):
 # Main rule that defines the final output
 rule all:
     input:
-        Only create outputs for condition-seq_platform combos that exist
-        expand("results/combined/{condition}_{seq_platform}.h5ad",
-               zip,
-               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
-        Use actual sample IDs for rRNA analysis
+        # Use actual sample IDs for rRNA analysis
         expand("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
                sample_id=SAMPLE_IDS,
                gene=config.get("target_gene", ["GQX67_05945"])),
@@ -128,11 +123,11 @@ rule map_10x:
     log:
         "logs/10x/{sample_id}.log"
     threads:
-        config["pseudoalign_threads"] 
+        config["pseudoalign_threads"]
     resources:
-        slurm_partition = config["cellranger_partition"],
-        mem_mb = config["cellranger_mem"],
-        slurm_time = config["cellranger_time"]
+        slurm_partition = config["pseudoalign_partition"],
+        mem_mb = config["pseudoalign_mem"],
+        slurm_time = config["pseudoalign_time"]
     shell:
         """
         exec > {log} 2>&1

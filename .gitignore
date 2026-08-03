@@ -221,3 +221,5 @@ __marimo__/
 ovary_atlas/
 reference/
 blast_db/
+results/
+.snakemake/
