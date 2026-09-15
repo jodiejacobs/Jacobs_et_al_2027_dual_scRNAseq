@@ -386,8 +386,8 @@ rule align_gene_reads:
     threads: 8
     resources:
         slurm_partition = "medium",
-        mem_mb = 16000,
-        slurm_time = "2:00:00"
+        mem_mb = 160000,
+        slurm_time = "6:00:00"
     shell:
         """
         # exec > {log} 2>&1
