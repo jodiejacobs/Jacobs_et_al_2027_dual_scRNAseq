@@ -173,7 +173,7 @@ rule map_10x:
         echo "Input files (R1 R2 pairs, in order): {params.kb_reads}"
         echo "Output directory: {params.outdir}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate kallisto_bustools
 
         kb count \
@@ -224,7 +224,7 @@ rule inspect_10x_corrected:
         exec > {log} 2>&1
         echo "Inspecting corrected BUS file for {wildcards.sample_id}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate kallisto_bustools
 
         bustools inspect -w {params.whitelist} -o {output.json} {input.bus}
@@ -291,7 +291,7 @@ rule validate_wMel_gene_capture:
         exec > {log} 2>&1
         echo "Validating wMel gene capture for {wildcards.sample_id}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
         python {params.script} \
@@ -322,7 +322,7 @@ rule filter_h5ad:
         echo "Starting filtering for {wildcards.sample_id}"
         echo "Input file: {input}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
         python {params.script} \
@@ -356,7 +356,7 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
         echo "Starting cell cycle annotation for {wildcards.sample_id}"
         echo "Input file: {input.h5ad}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {CYCLUM_ENV}
 
         python {params.script} \
@@ -393,7 +393,7 @@ rule align_gene_reads:
         # exec > {log} 2>&1
         echo "Starting BWA alignment for {wildcards.sample_id} - {wildcards.gene}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         # Make the directory
@@ -478,7 +478,7 @@ rule extract_16s_sequences:
         exec > {log} 2>&1
         echo "Extracting 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         # Extract reads mapping to 16S region
@@ -507,7 +507,7 @@ rule blast_16s:
         exec > {log} 2>&1
         echo "Running BLAST for {wildcards.sample_id} - {wildcards.gene}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         blastn -db {params.db} \
@@ -574,7 +574,7 @@ rule plot_coverage_by_group:
         exec > {log} 2>&1
         echo "Plotting coverage for {wildcards.condition}_{wildcards.seq_platform}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         mkdir -p {output.plot_dir}
@@ -651,7 +651,7 @@ rule extract_abundant_16s:
         exec > {log} 2>&1
         echo "Extracting abundant 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         # Extract IDs with at least min_reads reads
@@ -695,7 +695,7 @@ rule integrate:
         exec > {log} 2>&1
         echo "Starting integration"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
         python {params.script} \
