@@ -222,4 +222,5 @@ ovary_atlas/
 reference/
 blast_db/
 results/
+results_hexamer_test/
 .snakemake/
