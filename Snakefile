@@ -66,10 +66,35 @@ print(f"Condition-Platform combinations: {CONDITION_PLATFORM_COMBOS}")
 
 # Helper function to get fastq files for a sample
 def get_fastq_files(sample_id):
-    """Get L005/L006 R1/R2 fastq paths for a sample."""
+    """Get R1/R2 fastq paths for a sample.
+
+    Each of the R1/R2 columns in samples.csv normally holds a single path.
+    To add a second (or third, ...) set of reads for a sample - e.g. a
+    top-up sequencing run or an extra lane - list the paths separated by
+    ';' in both columns, in matching order (R1[i] pairs with R2[i]):
+        cond,10x,1,run1_R1.fastq.gz;run2_R1.fastq.gz,run1_R2.fastq.gz;run2_R2.fastq.gz
+    Returns two lists (r1_files, r2_files), each of length 1 for a
+    single-lane sample.
+    """
     sample_info = samples_df.loc[sample_id]
-    return sample_info[3], sample_info[4], sample_info[5], sample_info[6]
-    # [0]=L005_R1  [1]=L005_R2  [2]=L006_R1  [3]=L006_R2
+    r1_files = [p.strip() for p in str(sample_info[3]).split(";") if p.strip()]
+    r2_files = [p.strip() for p in str(sample_info[4]).split(";") if p.strip()]
+    if len(r1_files) != len(r2_files):
+        raise ValueError(
+            f"{sample_id}: R1 column lists {len(r1_files)} file(s) but R2 column "
+            f"lists {len(r2_files)} - samples.csv must list the same number of "
+            f"';'-separated R1 and R2 files, in matching order, for each sample."
+        )
+    return r1_files, r2_files
+
+# Interleave a sample's R1/R2 files the way kb count expects multiple
+# lanes/runs to be passed: R1_a R2_a R1_b R2_b ...
+def get_kb_reads(sample_id):
+    r1_files, r2_files = get_fastq_files(sample_id)
+    interleaved = []
+    for r1, r2 in zip(r1_files, r2_files):
+        interleaved += [r1, r2]
+    return interleaved
 
 # Helper function to get replicates for a condition-seq_platform combo
 def get_replicates_for_combo(condition, seq_platform):
@@ -118,10 +143,8 @@ rule all:
 # Process 10X samples with kallisto bustools
 rule map_10x:
     input:
-        read1_1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
-        read1_2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[2],
-        read2_1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
-        read2_2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[3],
+        reads1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
+        reads2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
     output:
         h5ad = "results/h5ad_results/{sample_id}.h5ad",
         bus = "results/10x/{sample_id}/output.unfiltered.bus",
@@ -131,7 +154,8 @@ rule map_10x:
         sample_id = "{sample_id}",
         outdir = "results/10x/{sample_id}",
         kallisto_index = config["kallisto_index"],
-        transcripts_to_genes = config["transcripts_to_genes"]
+        transcripts_to_genes = config["transcripts_to_genes"],
+        kb_reads = lambda wildcards: " ".join(get_kb_reads(wildcards.sample_id))
     wildcard_constraints:
         sample_id = ".*_10x"  # Only match samples ending with _10x
     log:
@@ -146,7 +170,7 @@ rule map_10x:
         """
         exec > {log} 2>&1
         echo "Starting 10x processing for {params.sample_id}"
-        echo "Input files: {input.read1_1} {input.read2_1} {input.read1_2} {input.read2_2}"
+        echo "Input files (R1 R2 pairs, in order): {params.kb_reads}"
         echo "Output directory: {params.outdir}"
 
         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
@@ -162,7 +186,7 @@ rule map_10x:
             -o {params.outdir} \
             -t {threads} \
             --h5ad \
-            {input.read1_1} {input.read2_1} {input.read1_2} {input.read2_2}
+            {params.kb_reads}
 
         echo "Moving h5ad file to final location"
         mv {params.outdir}/counts_unfiltered/adata.h5ad {output.h5ad}
@@ -375,10 +399,20 @@ rule align_gene_reads:
         # Make the directory
         mkdir -p results/rRNA_analysis/alignment/{wildcards.sample_id}
 
+        # {input.r2} is one file per lane/run for this sample (see
+        # get_fastq_files in the Snakefile); concatenating gzipped fastqs
+        # is valid (multi-member gzip streams decompress fine), so this
+        # merges however many R2 files the sample has into one before
+        # alignment - unchanged behavior for single-lane samples.
+        MERGED_R2=results/rRNA_analysis/alignment/{wildcards.sample_id}/{wildcards.gene}_merged_R2.fastq.gz
+        cat {input.r2} > $MERGED_R2
+
         # Align with BWA MEM, convert to BAM, sort, and filter for regions
-        bwa mem -t {threads} {input.ref} {input.r2} | \
+        bwa mem -t {threads} {input.ref} $MERGED_R2 | \
             samtools view -Sb | \
             samtools sort -@ {threads} -o results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+
+        rm $MERGED_R2
 
         samtools index results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
 
