@@ -1,6 +1,7 @@
 # Snakefile for processing scRNA-seq data with Snakemake and kallisto bustools
 # mamba activate snakemake #Needs snakemake>=9.0
-# snakemake --executor slurm --default-resources slurm_partition=medium slurm_time="2:00:00" runtime=120 mem_mb=8000 -j 16 -n
+# snakemake --executor slurm --default-resources slurm_partition=medium runtime=120 mem_mb=8000 -j 16 -n
+# (rules set their own "runtime" resource in minutes; slurm_time is not read by the SLURM executor plugin)
 
 import pandas as pd
 import os
@@ -96,6 +97,21 @@ def get_kb_reads(sample_id):
         interleaved += [r1, r2]
     return interleaved
 
+# snakemake-executor-plugin-slurm reads wall-time from the "runtime"
+# resource (integer minutes) - it does NOT recognize "slurm_time", so a
+# rule that only sets slurm_time submits with no --time at all and falls
+# back to the cluster/partition default. This converts the "H:MM:SS" (or
+# "M:SS") strings used throughout this Snakefile/config.yaml into the
+# minutes the plugin actually reads, so rules keep their human-readable
+# time strings but the SLURM submission gets the wall time we intend.
+def hms_to_minutes(time_str):
+    parts = [int(p) for p in str(time_str).split(":")]
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    hours, minutes, seconds = parts
+    total_minutes = hours * 60 + minutes + (1 if seconds else 0)
+    return max(total_minutes, 1)
+
 # Helper function to get replicates for a condition-seq_platform combo
 def get_replicates_for_combo(condition, seq_platform):
     """Get the list of replicates that exist for a given condition-seq_platform combo."""
@@ -165,7 +181,7 @@ rule map_10x:
     resources:
         slurm_partition = config["pseudoalign_partition"],
         mem_mb = config["pseudoalign_mem"],
-        slurm_time = config["pseudoalign_time"]
+        runtime = hms_to_minutes(config["pseudoalign_time"])
     shell:
         """
         exec > {log} 2>&1
@@ -218,7 +234,7 @@ rule inspect_10x_corrected:
     resources:
         slurm_partition = "medium",
         mem_mb = 8000,
-        slurm_time = "30:00"
+        runtime = hms_to_minutes("30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -285,7 +301,7 @@ rule validate_wMel_gene_capture:
     resources:
         slurm_partition = "medium",
         mem_mb = 8000,
-        slurm_time = "30:00"
+        runtime = hms_to_minutes("30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -315,7 +331,7 @@ rule filter_h5ad:
     resources:
         slurm_partition = config["filter_partition"],
         mem_mb = config["filter_mem"],
-        slurm_time = config["filter_time"]
+        runtime = hms_to_minutes(config["filter_time"])
     shell:
         """
         exec > {log} 2>&1
@@ -349,7 +365,7 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
     resources:
         slurm_partition = config["cell_cycle_partition"],
         mem_mb = config["cell_cycle_mem"],
-        slurm_time = config["cell_cycle_time"]
+        runtime = hms_to_minutes(config["cell_cycle_time"])
     shell:
         """
         exec > {log} 2>&1
@@ -387,7 +403,7 @@ rule align_gene_reads:
     resources:
         slurm_partition = "medium",
         mem_mb = 160000,
-        slurm_time = "6:00:00"
+        runtime = hms_to_minutes("6:00:00")
     shell:
         """
         # exec > {log} 2>&1
@@ -445,7 +461,7 @@ rule calculate_coverage:
     resources:
         slurm_partition = "medium",
         mem_mb = 4000,
-        slurm_time = "30:00"
+        runtime = hms_to_minutes("30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -472,7 +488,7 @@ rule extract_16s_sequences:
     resources:
         slurm_partition = "medium",
         mem_mb = 4000,
-        slurm_time = "30:00"
+        runtime = hms_to_minutes("30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -501,7 +517,7 @@ rule blast_16s:
     resources:
         slurm_partition = "medium",
         mem_mb = 32000,
-        slurm_time = "4:00:00"
+        runtime = hms_to_minutes("4:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -533,7 +549,7 @@ rule summarize_blast:
     resources:
         slurm_partition = "medium",
         mem_mb = 2000,
-        slurm_time = "15:00"
+        runtime = hms_to_minutes("15:00")
     shell:
         """
         exec > {log} 2>&1
@@ -568,7 +584,7 @@ rule plot_coverage_by_group:
     resources:
         slurm_partition = "medium",
         mem_mb = 8000,
-        slurm_time = "1:00:00"
+        runtime = hms_to_minutes("1:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -608,7 +624,7 @@ rule plot_blast_by_group:
     resources:
         slurm_partition = "medium",
         mem_mb = 8000,
-        slurm_time = "1:00:00"
+        runtime = hms_to_minutes("1:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -645,7 +661,7 @@ rule extract_abundant_16s:
     resources:
         slurm_partition = "medium",
         mem_mb = 4000,
-        slurm_time = "30:00"
+        runtime = hms_to_minutes("30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -689,7 +705,7 @@ rule integrate:
     resources:
         slurm_partition = config.get("integrate_partition", "medium"),
         mem_mb          = config.get("integrate_mem", 128000),
-        slurm_time      = config.get("integrate_time", "8:00:00")
+        runtime      = hms_to_minutes(config.get("integrate_time", "8:00:00"))
     shell:
         """
         exec > {log} 2>&1
@@ -738,7 +754,7 @@ rule integrate:
 #     resources:
 #         slurm_partition = config.get("nmf_partition", "medium"),
 #         mem_mb          = config.get("nmf_mem", 64000),
-#         slurm_time      = config.get("nmf_time", "4:00:00")
+#         runtime      = hms_to_minutes(config.get("nmf_time", "4:00:00"))
 #     shell:
 #         """
 #         exec > {log} 2>&1
@@ -779,7 +795,7 @@ rule integrate:
 #     resources:
 #         slurm_partition = config.get("nmf_continuous_partition", "medium"),
 #         mem_mb = config.get("nmf_continuous_mem", 32000),
-#         slurm_time = config.get("nmf_continuous_time", "2:00:00")
+#         runtime = hms_to_minutes(config.get("nmf_continuous_time", "2:00:00"))
 #     shell:
 #         """
 #         exec > {log} 2>&1
@@ -814,7 +830,7 @@ rule integrate:
 #     resources:
 #         slurm_partition = config.get("nmf_categorical_partition", "medium"),
 #         mem_mb = config.get("nmf_categorical_mem", 32000),
-#         slurm_time = config.get("nmf_categorical_time", "2:00:00")
+#         runtime = hms_to_minutes(config.get("nmf_categorical_time", "2:00:00"))
 #     shell:
 #         """
 #         exec > {log} 2>&1
@@ -857,7 +873,7 @@ rule integrate:
 #     resources:
 #         slurm_partition = config.get("nmf_annotate_partition", "medium"),
 #         mem_mb          = config.get("nmf_annotate_mem",       32000),
-#         slurm_time      = config.get("nmf_annotate_time",      "4:00:00")
+#         runtime      = hms_to_minutes(config.get("nmf_annotate_time",      "4:00:00"))
 #     shell:
 #         """
 #         exec > {log} 2>&1
