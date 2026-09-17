@@ -347,7 +347,7 @@ rule gene_group_stats:
     threads: 1
     resources:
         slurm_partition = "medium",
-        mem_mb = 8000,
+        mem_mb = lambda wildcards, attempt: 16000 * attempt,  # was 8000; OOM'd on Mei-P26_wMel-1_10x, scales up on retry
         runtime = hms_to_minutes("30:00")
     shell:
         """
