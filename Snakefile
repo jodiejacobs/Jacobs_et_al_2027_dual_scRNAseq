@@ -121,10 +121,12 @@ def get_replicates_for_combo(condition, seq_platform):
 # Main rule that defines the final output
 rule all:
     input:
-        # Use actual sample IDs for rRNA analysis
-        expand("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
-               sample_id=SAMPLE_IDS,
-               gene=config.get("target_gene", ["GQX67_05945"])),
+        # Use actual sample IDs for rRNA analysis.
+        # Note: {gene}_aligned.bam is intentionally NOT requested here - it's
+        # a temp() intermediate (see align_gene_reads) that Snakemake deletes
+        # once calculate_coverage and extract_16s_sequences have both used
+        # it. coverage.tsv and blast.summary below still pull it through the
+        # DAG transitively.
         expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
                sample_id=SAMPLE_IDS,
                gene=config.get("target_gene", ["GQX67_05945"])),
@@ -395,8 +397,8 @@ rule align_gene_reads:
         ref = config["ref_fasta"],
         regions = config["rRNA_regions"]
     output:
-        bam = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
-        bai = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai"
+        bam = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam"),
+        bai = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai")
     log:
         "logs/align_gene/{sample_id}_{gene}.log"
     threads: 8
@@ -407,6 +409,7 @@ rule align_gene_reads:
     shell:
         """
         # exec > {log} 2>&1
+        set -euo pipefail
         echo "Starting BWA alignment for {wildcards.sample_id} - {wildcards.gene}"
 
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
@@ -419,16 +422,22 @@ rule align_gene_reads:
         # get_fastq_files in the Snakefile); concatenating gzipped fastqs
         # is valid (multi-member gzip streams decompress fine), so this
         # merges however many R2 files the sample has into one before
-        # alignment - unchanged behavior for single-lane samples.
-        MERGED_R2=results/rRNA_analysis/alignment/{wildcards.sample_id}/{wildcards.gene}_merged_R2.fastq.gz
-        cat {input.r2} > $MERGED_R2
-
-        # Align with BWA MEM, convert to BAM, sort, and filter for regions
-        bwa mem -t {threads} {input.ref} $MERGED_R2 | \
-            samtools view -Sb | \
+        # alignment - unchanged behavior for single-lane samples. Streamed
+        # through process substitution instead of written to a temp file
+        # first, so large samples don't need a second full-size copy of R2
+        # sitting on disk during alignment.
+        #
+        # {input.r2} covers the whole library, but {input.ref} is only the
+        # small rRNA/wMel reference, so the large majority of reads here
+        # won't map. The previous version kept every read (mapped and
+        # unmapped) through sort, which meant runtime/memory/disk scaled
+        # with the full library size instead of the much smaller mapped
+        # fraction - this is almost certainly why large samples were
+        # struggling. `-F 4` drops unmapped reads right after alignment,
+        # before the expensive sort step.
+        bwa mem -t {threads} {input.ref} <(cat {input.r2}) | \
+            samtools view -Sb -F 4 | \
             samtools sort -@ {threads} -o results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
-
-        rm $MERGED_R2
 
         samtools index results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
 
@@ -443,6 +452,17 @@ rule align_gene_reads:
 
         samtools view -b results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam "$CHROM" -o {output.bam}
         samtools index {output.bam}
+
+        # Clean up the whole-sample intermediate now that the gene-specific
+        # slice has been pulled out of it - even filtered to mapped reads
+        # only, it's not a declared output and nothing else needs it.
+        # NOTE: this file is shared by sample_id only, not by gene, so if
+        # target_gene is ever a list of more than one value, deleting it
+        # here will break any other in-flight/queued gene job for this same
+        # sample that still expects to read it - fine for the current
+        # single-gene config, not safe if that changes.
+        rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+        rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam.bai
 
         echo "Alignment complete for {wildcards.sample_id} - {wildcards.gene}"
         echo "Filtered to $(samtools view -c {output.bam}) reads in target regions"
