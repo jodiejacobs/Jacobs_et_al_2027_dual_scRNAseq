@@ -64,18 +64,6 @@ sc.settings.figdir   = fig_dir
 # Gene lists
 # ─────────────────────────────────────────────────────────────────────────────
 
-rRNA_genes = [
-    "GQX67_00940", "GQX67_00945", "GQX67_05945",
-    "FBgn0267496", "FBgn0267500", "FBgn0267503", "FBgn0085765",
-    "FBgn0267518", "FBgn0267524", "FBgn0267509", "FBgn0267499",
-    "FBgn0267502", "FBgn0267512", "FBgn0267517", "FBgn0267523",
-    "FBgn0250731", "FBgn0267514", "FBgn0085802", "FBgn0267498",
-    "FBgn0267501", "FBgn0267521", "FBgn0085813", "FBgn0267504",
-    "FBgn0267508", "FBgn0267511", "FBgn0085753", "FBgn0267497",
-    "FBgn0267522", "FBgn0085771", "FBgn0267519", "FBgn0085819",
-    "FBgn0267513", "FBgn0267520", "FBgn0267515",
-]
-
 MITO_GENES_FALLBACK = [
     "FBgn0013674", "FBgn0013675", "FBgn0013676", "FBgn0013677",
     "FBgn0013678", "FBgn0013679", "FBgn0013680", "FBgn0013681",
@@ -129,37 +117,41 @@ sc.settings.set_figure_params(dpi=300, dpi_save=300, figsize=(2, 2), fontsize=6)
 # Wolbachia titer — vectorised
 # ─────────────────────────────────────────────────────────────────────────────
 
-def calculate_wolbachia_titer(adata, rRNA_genes):
-    """Vectorised titer calculation using sparse matrix slicing."""
-    print("Calculating Wolbachia titer …")
+def calculate_wolbachia_titer(adata):
+    """Titer as wMel / (wMel + dmel) total transcript counts per cell.
 
-    wMel_genes  = ["GQX67_05945"]
-    var_names   = list(adata.var_names)
+    Genes are assigned by var_name prefix rather than a curated gene list:
+    Dmel genes start with "FB" (FlyBase IDs), wMel genes start with "GQ"
+    (RefSeq locus tags). All genes matching each prefix are summed, not just
+    the rRNA subset used previously.
 
-    # Single slice for all wMel genes
-    wMel_present = [g for g in wMel_genes   if g in var_names]
-    dmel_present = [g for g in rRNA_genes   if g in var_names]
+    Bounded in [0, 1]. Cells with zero counts from both prefixes (denom = 0)
+    get titer = 0 rather than NaN, matching the previous convention.
+    """
+    print("Calculating Wolbachia titer...")
 
-    def _sum_genes(gene_list):
-        if not gene_list:
+    var_names = adata.var_names.astype(str)
+    dmel_mask = var_names.str.startswith("FB")
+    wMel_mask = var_names.str.startswith("GQ")
+
+    def _sum_mask(mask):
+        if mask.sum() == 0:
             return np.zeros(adata.n_obs, dtype=np.float32)
-        idx = [var_names.index(g) for g in gene_list]
-        X   = adata.X[:, idx]
+        X = adata.X[:, mask.to_numpy()]
         if scipy.sparse.issparse(X):
             return np.asarray(X.sum(axis=1)).flatten().astype(np.float32)
-        return X.sum(axis=1).astype(np.float32)
+        return np.asarray(X.sum(axis=1)).flatten().astype(np.float32)
 
-    wMel_total = _sum_genes(wMel_present)
-    dmel_total = _sum_genes(dmel_present)
+    dmel_total = _sum_mask(dmel_mask)
+    wMel_total = _sum_mask(wMel_mask)
 
     denom = wMel_total + dmel_total
-    # Where denominator is 0 (no rRNA detected), titer = 0
     titer = np.where(denom > 0, wMel_total / denom, 0.0)
 
     adata.obs['wolbachia_titer'] = titer
-    print(f"  Mean: {titer.mean():.4f}  Median: {np.median(titer):.4f}  "
-          f"wMel genes used: {wMel_present}  "
-          f"Dmel rRNA genes present: {len(dmel_present)}")
+    print(f"  Dmel genes (FB*): {int(dmel_mask.sum())}  "
+          f"wMel genes (GQ*): {int(wMel_mask.sum())}")
+    print(f"  Mean: {titer.mean():.4f}  Median: {np.median(titer):.4f}")
     return adata
 
 
@@ -448,7 +440,7 @@ def process_data_with_metrics(key, matrix, log_to_file=True):
         all_metrics = []
 
         print("\n=== Calculating Wolbachia titer ===")
-        adata = calculate_wolbachia_titer(adata, rRNA_genes)
+        adata = calculate_wolbachia_titer(adata)
 
         raw_metrics = calculate_qc_metrics(adata, sample_name=key, stage="raw")
         all_metrics.append(raw_metrics)
