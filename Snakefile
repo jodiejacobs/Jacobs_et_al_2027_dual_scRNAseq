@@ -467,7 +467,7 @@ rule calculate_coverage:
         exec > {log} 2>&1
         echo "Calculating coverage for {wildcards.sample_id} - {wildcards.gene}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         samtools depth {input.bam} > {output.cov}
@@ -630,7 +630,7 @@ rule plot_blast_by_group:
         exec > {log} 2>&1
         echo "Plotting BLAST results for {wildcards.condition}_{wildcards.seq_platform}"
 
-        source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate sra-tools
 
         mkdir -p {output.plot_dir}
@@ -760,7 +760,7 @@ rule integrate:
 #         exec > {log} 2>&1
 #         echo "Starting NMF program discovery"
 
-#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
 
 #         python {params.script} \
@@ -801,7 +801,7 @@ rule integrate:
 #         exec > {log} 2>&1
 #         echo "Starting NMF continuous variable analysis"
 
-#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
 
 #         python {params.script} \
@@ -836,7 +836,7 @@ rule integrate:
 #         exec > {log} 2>&1
 #         echo "Starting NMF categorical variable analysis"
 
-#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
 
 #         python {params.script} \
@@ -879,7 +879,7 @@ rule integrate:
 #         exec > {log} 2>&1
 #         echo "Starting NMF program annotation"
 
-#         source $(dirname $(dirname $(which conda)))/etc/profile.d/conda.sh
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
 #         conda activate {SCANPY_ENV}
 
 #         python {params.script} \
