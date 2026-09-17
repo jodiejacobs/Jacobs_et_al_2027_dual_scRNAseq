@@ -137,7 +137,7 @@ def calculate_wolbachia_titer(adata):
     def _sum_mask(mask):
         if mask.sum() == 0:
             return np.zeros(adata.n_obs, dtype=np.float32)
-        X = adata.X[:, mask.to_numpy()]
+        X = adata.X[:, np.asarray(mask)]
         if scipy.sparse.issparse(X):
             return np.asarray(X.sum(axis=1)).flatten().astype(np.float32)
         return np.asarray(X.sum(axis=1)).flatten().astype(np.float32)

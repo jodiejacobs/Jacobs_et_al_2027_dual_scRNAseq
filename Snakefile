@@ -151,6 +151,11 @@ rule all:
         expand("results/qc/wMel_gene_capture/{sample_id}_wMel_gene_capture.txt",
                sample_id=SAMPLE_IDS_10X),
 
+        # Wolbachia (GQ) vs Dmel (FB) gene-group count stats, run on the
+        # filtered h5ad (needs adata.raw, which filter_h5ad populates)
+        expand("results/qc/gene_group_stats/{sample_id}/group_summary.csv",
+               sample_id=SAMPLE_IDS_10X),
+
         # # Gene program and pathway analysis
         # "results/nmf_programs/.done",
         # "results/nmf_continuous_var/.done",
@@ -317,6 +322,48 @@ rule validate_wMel_gene_capture:
             --output {output.report}
 
         echo "wMel gene capture validation complete for {wildcards.sample_id}"
+        """
+
+# Rule: Gene-group (Wolbachia GQ vs Dmel FB) count stats, run on the
+# filtered h5ad (post doublet-removal/QC-filter, pre-normalization) since
+# that's the object with adata.raw populated with raw counts.
+rule gene_group_stats:
+    input:
+        h5ad = "results/filtered_h5ad/{sample_id}.h5ad"
+    output:
+        gene_stats = "results/qc/gene_group_stats/{sample_id}/gene_stats.csv",
+        group_summary = "results/qc/gene_group_stats/{sample_id}/group_summary.csv",
+        cell_stats = "results/qc/gene_group_stats/{sample_id}/cell_stats.csv"
+    params:
+        script = config.get(
+            "gene_group_stats_script",
+            "/private/groups/russelllab/jodie/scRNAseq/Jacobs_et_al_2027_dual_scRNAseq/snakemake_scripts/quality_control/gene_group_stats.py"
+        ),
+        outdir = "results/qc/gene_group_stats/{sample_id}"
+    wildcard_constraints:
+        sample_id = ".*_10x"
+    log:
+        "logs/gene_group_stats/{sample_id}.log"
+    threads: 1
+    resources:
+        slurm_partition = "medium",
+        mem_mb = 8000,
+        runtime = hms_to_minutes("30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Computing Wolbachia/Dmel gene-group stats for {wildcards.sample_id}"
+
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+
+        python {params.script} \
+            --input {input.h5ad} \
+            --outdir {params.outdir} \
+            --prefix Wolbachia:GQ \
+            --prefix Drosophila:FB
+
+        echo "Gene-group stats complete for {wildcards.sample_id}"
         """
 
 # Filter h5ad output and output qc:
