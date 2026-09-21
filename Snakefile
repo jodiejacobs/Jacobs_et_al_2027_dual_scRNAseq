@@ -333,7 +333,9 @@ rule gene_group_stats:
     output:
         gene_stats = "results/qc/gene_group_stats/{sample_id}/gene_stats.csv",
         group_summary = "results/qc/gene_group_stats/{sample_id}/group_summary.csv",
-        cell_stats = "results/qc/gene_group_stats/{sample_id}/cell_stats.csv"
+        cell_stats = "results/qc/gene_group_stats/{sample_id}/cell_stats.csv",
+        qc_plot_png = "results/qc/gene_group_stats/{sample_id}/{sample_id}_gene_group_qc.png",
+        qc_plot_pdf = "results/qc/gene_group_stats/{sample_id}/{sample_id}_gene_group_qc.pdf"
     params:
         script = config.get(
             "gene_group_stats_script",
