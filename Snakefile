@@ -453,8 +453,8 @@ rule align_gene_reads:
     threads: 8
     resources:
         slurm_partition = "medium",
-        mem_mb = 160000,
-        runtime = hms_to_minutes("6:00:00")
+        mem_mb = 1000000,
+        runtime = hms_to_minutes("12:00:00")
     shell:
         """
         # exec > {log} 2>&1
