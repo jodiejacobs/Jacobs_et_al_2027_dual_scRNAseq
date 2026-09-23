@@ -57,13 +57,11 @@ integrate_time: "8:00:00"
 ovary_atlas: "ovary_atlas/atlas/h5ad_unprocessed/s_fca_biohub_ovary_10x.h5ad"
 atlas_k: 30
 atlas_n_pcs: 30
-# obs column(s) in the atlas to transfer, e.g. [annotation, cell_type].
-# JUDGMENT CALL: left empty -- the atlas's obs schema hasn't been inspected
-# yet, so the first `snakemake ... rule integrate` run will print the
-# atlas's candidate columns and exit (by design, see the script's
-# docstring) rather than guess a column name that might not exist. Fill
-# this in from that output, then re-run.
-atlas_label_cols: []
+# obs column(s) in the atlas to transfer. Both requested: 'annotation'
+# (fine-grained cell type) and 'annotation_broad' (coarse) -- transferring
+# both costs almost nothing extra (same projection, one more KNN
+# confidence pass per column), so no need to commit to one resolution now.
+atlas_label_cols: [annotation, annotation_broad]
 atlas_subsample_ref: null  # set an int for a faster first pass on a subsampled atlas
 
 cellcycle_threads: 4
