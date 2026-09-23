@@ -754,19 +754,44 @@ rule extract_abundant_16s:
         echo "Abundant sequence extraction complete"
         """
 
+##################################################################
+# Integration via frozen-atlas projection (now the default path)
+##################################################################
+# Produces results/integrated/integrated.h5ad by projecting every filtered
+# sample onto the SAME frozen ovary reference atlas embedding (Fly Cell
+# Atlas / BioHub ovary object), via integrate_via_atlas_projection.py --
+# same mechanism as Lum et al. 2027's integrate_via_atlas_projection.py
+# (scanpy.tl.ingest reference projection), replacing this rule's old
+# BBKNN joint-clustering path (integrate.py, kept in
+# snakemake_scripts/analysis/ if you want to compare or revert -- point
+# integrate_atlas_script at it and add back its own CLI flags to switch).
+# See integrate_via_atlas_projection.py's module docstring for what this
+# object is/isn't good for (atlas_<label> cell-type identity and
+# wolbachia_titer-by-cell-type composition, not fine within-cell-type
+# expression shifts along the titer/infection-status axis -- keep using
+# integrate.py's own Harmony output, run on your cells alone, for that).
 rule integrate:
     input:
-        files = expand("results/filtered_h5ad/{sample_id}.h5ad", sample_id=SAMPLE_IDS)
+        files              = expand("results/filtered_h5ad/{sample_id}.h5ad", sample_id=SAMPLE_IDS),
+        atlas              = config.get("ovary_atlas",
+                                  "ovary_atlas/atlas/h5ad_unprocessed/s_fca_biohub_ovary_10x.h5ad"),
+        flybase_annotation = config["flybase_annotation"],
     output:
         integrated = "results/integrated/integrated.h5ad"
     params:
-        files         = "results/filtered_h5ad/*.h5ad",
-        script        = config["integrate_script"],
-        sample        = "wolbachia_infection",
-        fig_dir       = "results/integrated/figures",
-        out_path      = "results/integrated/integrated.h5ad",
-        resolution    = 0.2,
-        bio_condition = config.get("integrate_bio_condition", "")
+        script   = config.get("integrate_atlas_script",
+                       "snakemake_scripts/analysis/integrate_via_atlas_projection.py"),
+        fig_dir  = "results/integrated/figures",
+        k        = config.get("atlas_k", 30),
+        n_pcs    = config.get("atlas_n_pcs", 30),
+        label_cols_flag = (
+            "--label_cols " + " ".join(config["atlas_label_cols"])
+            if config.get("atlas_label_cols") else ""
+        ),
+        subsample_flag = (
+            f"--subsample_ref {config['atlas_subsample_ref']}"
+            if config.get("atlas_subsample_ref") else ""
+        ),
     log:
         "logs/integrate/integrate.log"
     threads:
@@ -778,23 +803,23 @@ rule integrate:
     shell:
         """
         exec > {log} 2>&1
-        echo "Starting integration"
+        echo "Starting atlas-projected integration"
 
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
         python {params.script} \
-            --files {input.files} \
-            --sample {params.sample} \
-            --batch_key batch \
-            --min_cells 3 \
-            --min_genes 700 \
-            --n_pcs 30 \
-            --resolution {params.resolution} \
-            --out_path {params.out_path} \
-            --fig_dir {params.fig_dir}
+            --atlas {input.atlas} \
+            --query {input.files} \
+            --out_path {output.integrated} \
+            --fig_dir {params.fig_dir} \
+            --flybase_annotation {input.flybase_annotation} \
+            --k {params.k} \
+            --n_pcs {params.n_pcs} \
+            {params.label_cols_flag} \
+            {params.subsample_flag}
 
-        echo "Integration complete"
+        echo "Atlas-projected integration complete"
         """
 
 # ##################################################################
