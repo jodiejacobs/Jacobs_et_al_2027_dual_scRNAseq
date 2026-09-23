@@ -577,6 +577,29 @@ def add_sample_metadata(adata, batch_key="source_file"):
 # Diagnostics
 # -----------------------------------------------------------------------------
 
+def plot_atlas_reference(ref, label_cols, fig_dir):
+    """Plot the frozen reference atlas's own UMAP, colored by its ground-
+    truth label_cols -- independent of any query projection. This is the
+    atlas by itself (ref.obsm['X_umap'] from build_reference_embedding,
+    never touched by project_query_onto_reference), so it doubles as a
+    sanity check on the embedding fit itself (are cell types actually
+    separated before any query cell is projected onto it?) and gives you a
+    ground-truth picture to compare plot_diagnostics's projected-query
+    UMAPs against.
+    """
+    os.makedirs(fig_dir, exist_ok=True)
+    sc.settings.figdir = fig_dir
+
+    print(f"\n-- Reference atlas UMAP -- writing to {fig_dir}/ --")
+    for col in label_cols:
+        if col not in ref.obs.columns:
+            continue
+        sc.pl.umap(ref, color=col, save=f"_atlas_reference_{col}.pdf",
+                   title=f"Reference atlas UMAP, colored by '{col}' "
+                         "(atlas cells only, no query)")
+    print(f"   Reference atlas UMAP complete -- see {fig_dir}/")
+
+
 def plot_diagnostics(query, label_cols, fig_dir):
     os.makedirs(fig_dir, exist_ok=True)
     sc.settings.figdir = fig_dir
@@ -709,6 +732,9 @@ def main():
     ref = build_reference_embedding(
         ref, n_pcs=args.n_pcs, n_top_genes=args.n_top_genes, n_neighbors=args.k,
     )
+
+    if args.fig_dir:
+        plot_atlas_reference(ref, args.label_cols, args.fig_dir)
 
     projected = project_query_onto_reference(ref, query, args.label_cols, k=args.k)
 
