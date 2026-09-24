@@ -665,6 +665,165 @@ def plot_diagnostics(query, label_cols, fig_dir):
 
 
 # -----------------------------------------------------------------------------
+# Artefact-label diagnostics. The FCA ovary 'artefact' annotation marks
+# low-quality / ambient-dominated / doublet clusters in the reference, so a
+# query cell transferred to 'artefact' may be a bad droplet OR a real cell
+# whose profile the uninfected reference doesn't capture (e.g. high-titer
+# cells). Nothing is removed here: this adds per-cell QC columns and a
+# per-sample outlier flag so the keep/remove decision can be made from data.
+# -----------------------------------------------------------------------------
+
+# Chorion (Cp*) and yolk protein (Yp1-3) transcripts are the dominant
+# ovary ambient RNA (late follicle cells / fat body).
+_AMBIENT_SYMBOL_RE = r"^(Cp\d+|Cp7F[a-c]|Yp[1-3])$"
+
+
+def add_query_qc_metrics(query, flybase_annotation=None):
+    """Per-cell QC from RAW counts (query.X before normalisation), computed
+    on host (FB*) genes so Wolbachia (GQ*) UMIs don't inflate depth."""
+    print("\n-- Per-cell QC metrics for artefact diagnostics (raw counts) --")
+    X = query.X.tocsr() if scipy.sparse.issparse(query.X) else scipy.sparse.csr_matrix(query.X)
+    var_names = pd.Index(query.var_names.astype(str))
+    host = np.asarray(var_names.str.startswith("FB"))
+
+    Xh = X[:, host]
+    host_counts = np.asarray(Xh.sum(axis=1)).ravel()
+    query.obs["qc_host_counts"] = host_counts
+    query.obs["qc_host_genes"] = np.asarray((Xh > 0).sum(axis=1)).ravel()
+    query.obs["qc_log10_host_counts"] = np.log10(host_counts + 1)
+
+    amb_fbgn = set()
+    if flybase_annotation:
+        sym2fbgn = load_symbol_to_fbgn(flybase_annotation)
+        amb_fbgn = {fb for sym, fb in sym2fbgn.items()
+                    if re.match(_AMBIENT_SYMBOL_RE, str(sym))}
+    amb_mask = np.asarray(var_names.isin(list(amb_fbgn)))
+    if amb_mask.sum() == 0:
+        print("   WARNING: no Cp*/Yp* genes found (need --flybase_annotation) "
+              "-- qc_ambient_frac set to NaN")
+        query.obs["qc_ambient_frac"] = np.nan
+    else:
+        amb_counts = np.asarray(X[:, amb_mask].sum(axis=1)).ravel()
+        query.obs["qc_ambient_frac"] = amb_counts / np.where(host_counts == 0, 1, host_counts)
+        print(f"   Ambient panel: {int(amb_mask.sum())} Cp*/Yp* genes in query")
+    return query
+
+
+def flag_qc_outliers(adata, batch_key="source_file", nmads=3.0):
+    """Per-sample MAD outlier flag (qc_outlier), computed within each sample
+    so one poor library doesn't set thresholds for the others.
+
+    JUDGMENT CALL: 3 MADs on log10 host counts (low side), host genes (low
+    side), percent_mito (high side), ambient fraction (high side), plus
+    scrublet predicted_doublet. Adjust nmads / metrics as needed. This only
+    FLAGS cells; nothing is dropped."""
+    def _mad_out(x, side):
+        x = np.asarray(x, dtype=float)
+        med = np.nanmedian(x)
+        mad = np.nanmedian(np.abs(x - med)) * 1.4826
+        if not np.isfinite(mad) or mad == 0:
+            return np.zeros_like(x, dtype=bool)
+        return (x < med - nmads * mad) if side == "low" else (x > med + nmads * mad)
+
+    rules = [("qc_log10_host_counts", "low"), ("qc_host_genes", "low"),
+             ("percent_mito", "high"), ("qc_ambient_frac", "high")]
+    out = pd.Series(False, index=adata.obs_names)
+    for _, idx in adata.obs.groupby(batch_key, observed=True).groups.items():
+        sub = adata.obs.loc[idx]
+        o = np.zeros(len(sub), dtype=bool)
+        for col, side in rules:
+            if col in sub.columns and sub[col].notna().any():
+                o |= _mad_out(sub[col].values, side)
+        out.loc[idx] = o
+    if "predicted_doublet" in adata.obs.columns:
+        out |= adata.obs["predicted_doublet"].astype(str).str.lower().isin(["true", "1"])
+    adata.obs["qc_outlier"] = out.values
+    print(f"   qc_outlier flagged {int(out.sum()):,}/{adata.n_obs:,} cells "
+          f"({out.mean()*100:.1f}%) at {nmads} MADs (not removed)")
+    return adata
+
+
+def plot_artefact_diagnostics(query, label_cols, fig_dir, artefact_label="artefact"):
+    """Is the transferred 'artefact' label tracking low quality, ambient
+    RNA, doublets, or Wolbachia titer? Writes summary tables + plots."""
+    os.makedirs(fig_dir, exist_ok=True)
+    sc.settings.figdir = fig_dir
+    metrics = [c for c in ["qc_host_counts", "qc_host_genes", "percent_mito",
+                           "qc_ambient_frac", "doublet_score", "wolbachia_titer"]
+               if c in query.obs.columns]
+
+    for col in label_cols:
+        atlas_col = f"atlas_{col}"
+        if atlas_col not in query.obs.columns:
+            continue
+        is_art = query.obs[atlas_col].astype(str) == artefact_label
+        if not is_art.any():
+            continue
+        print(f"\n-- Artefact diagnostics for '{atlas_col}' "
+              f"({int(is_art.sum()):,} cells, {is_art.mean()*100:.1f}%) --")
+        df = query.obs[["source_file"] + metrics].copy()
+        df["is_artefact"] = np.where(is_art, "artefact", "other")
+        conf_col = f"{atlas_col}_confidence"
+        if conf_col in query.obs.columns:
+            df["confidence"] = query.obs[conf_col].values
+        if "qc_outlier" in query.obs.columns:
+            df["qc_outlier"] = query.obs["qc_outlier"].astype(bool).values
+
+        # 1. Median QC per sample x artefact status.
+        g = df.groupby(["source_file", "is_artefact"], observed=True)
+        summ = g[[c for c in df.columns if c not in ("source_file", "is_artefact", "qc_outlier")]].median()
+        summ["n_cells"] = g.size()
+        if "qc_outlier" in df.columns:
+            summ["frac_qc_outlier"] = g["qc_outlier"].mean()
+        summ.to_csv(os.path.join(fig_dir, f"artefact_qc_by_sample_{col}.csv"))
+        print(summ.round(3).to_string())
+
+        # 2. How many artefact cells would a QC-based filter already catch?
+        if "qc_outlier" in df.columns:
+            ct = pd.crosstab([df["source_file"], df["is_artefact"]], df["qc_outlier"])
+            ct.to_csv(os.path.join(fig_dir, f"artefact_vs_qc_outlier_{col}.csv"))
+            print(ct.to_string())
+
+        # 3. Per-metric distributions, artefact vs other, per sample.
+        samples = sorted(df["source_file"].unique())
+        mcols = metrics + (["confidence"] if "confidence" in df.columns else [])
+        fig, axes = plt.subplots(len(mcols), 1, figsize=(max(8, len(samples) * 1.2), 2.6 * len(mcols)),
+                                 squeeze=False)
+        for ax, m in zip(axes[:, 0], mcols):
+            data, labels, colors = [], [], []
+            for s in samples:
+                for grp, c in [("other", "#9aa5b1"), ("artefact", "#d1495b")]:
+                    v = df.loc[(df["source_file"] == s) & (df["is_artefact"] == grp), m].dropna().values
+                    data.append(v if len(v) else [np.nan])
+                    labels.append(f"{s}\n{grp}")
+                    colors.append(c)
+            bp = ax.boxplot(data, showfliers=False, patch_artist=True)
+            for patch, c in zip(bp["boxes"], colors):
+                patch.set_facecolor(c)
+            ax.set_ylabel(m)
+            if m == "qc_host_counts":
+                ax.set_yscale("log")
+            ax.set_xticks([])
+        axes[-1, 0].set_xticks(range(1, len(labels) + 1))
+        axes[-1, 0].set_xticklabels(labels, rotation=90, fontsize=6)
+        fig.suptitle(f"'{artefact_label}' vs other cells, per sample ({atlas_col}); "
+                     "red = artefact, grey = other")
+        _savefig(fig, os.path.join(fig_dir, f"artefact_qc_boxplots_{col}.pdf"))
+
+        # 4. Where do artefact cells sit on the atlas UMAP?
+        qp = query.copy()
+        qp.obsm["X_umap"] = qp.obsm["X_umap_atlas"]
+        qp.obs["is_artefact"] = pd.Categorical(df["is_artefact"].values)
+        color = ["is_artefact"] + [c for c in ["qc_ambient_frac", "qc_log10_host_counts",
+                                               "percent_mito", "doublet_score",
+                                               "wolbachia_titer", conf_col, "qc_outlier"]
+                                   if c in qp.obs.columns]
+        if "qc_outlier" in qp.obs.columns:
+            qp.obs["qc_outlier"] = pd.Categorical(qp.obs["qc_outlier"].astype(str))
+        sc.pl.umap(qp, color=color, ncols=3, save=f"_artefact_diagnostics_{col}.pdf")
+
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 
@@ -719,6 +878,11 @@ def main():
     query = add_sample_metadata(query, batch_key="source_file")
     print(query.obs["condition"].value_counts().to_string())
 
+    # Raw-count QC columns (carried through projection via obs) for the
+    # artefact-label diagnostics below.
+    query = add_query_qc_metrics(query, flybase_annotation=args.flybase_annotation)
+    query = flag_qc_outliers(query, batch_key="source_file")
+
     # Full-gene, log1p-normalised copy BEFORE the projection step restricts
     # query down to the atlas's HVG panel -- stashed as .raw afterwards,
     # same convention the old integrate.py's preprocess() uses. This keeps
@@ -765,6 +929,7 @@ def main():
 
     if args.fig_dir:
         plot_diagnostics(projected, args.label_cols, args.fig_dir)
+        plot_artefact_diagnostics(projected, args.label_cols, args.fig_dir)
 
     print("\n" + "=" * 60)
     print("COMPLETE (atlas-projected integration)")
