@@ -1,6 +1,7 @@
 # Snakefile for processing scRNA-seq data with Snakemake and kallisto bustools
 # mamba activate snakemake #Needs snakemake>=9.0
 # snakemake --executor slurm --default-resources slurm_partition=medium runtime=120 mem_mb=8000 -j 16 -n
+# watch -n 30 'squeue -u $USER -o "%.10i %.9P %.30k %.2t %.10M %.10l %R"'
 # (rules set their own "runtime" resource in minutes; slurm_time is not read by the SLURM executor plugin)
 
 import pandas as pd
@@ -586,7 +587,7 @@ rule blast_16s:
     resources:
         slurm_partition = "medium",
         mem_mb = 32000,
-        runtime = hms_to_minutes("4:00:00")
+        runtime = hms_to_minutes("12:00:00")
     shell:
         """
         exec > {log} 2>&1
