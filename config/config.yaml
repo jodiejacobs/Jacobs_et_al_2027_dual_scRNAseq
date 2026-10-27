@@ -122,3 +122,12 @@ gene_set_libraries:
 # nmf_annotate_partition: "medium"
 # nmf_annotate_mem:       32000
 # nmf_annotate_time:      "4:00:00"
+
+# mei-P26 rescue analysis (rules/rescue_analysis.smk); all keys optional
+edger_env: "/private/groups/russelllab/jodie/miniforge3/envs/edger"  # R + bioconductor-edger
+rescue_label_col: "cell_type_annotation_broad"   # or "cell_type_annotation" (finer)
+rescue_min_confidence: 0.5     # atlas label KNN confidence
+rescue_min_cells: 20           # per sample x tissue pseudobulk
+rescue_min_wmel_umis: 2000     # per pseudobulk, Wolbachia DE only
+rescue_block_replicate: false  # add replicate to host design (uses 1 of 4 residual df)
+rescue_drop_qc_outliers: false

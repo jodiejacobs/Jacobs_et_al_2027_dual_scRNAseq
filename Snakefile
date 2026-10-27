@@ -1005,3 +1005,9 @@ rule integrate:
 
 #         echo "NMF program annotation complete"
 #         """
+
+##################################################################
+# mei-P26 rescue analysis (pseudobulk by atlas cell type)
+# snakemake rescue_all ...   see snakemake_scripts/analysis/mei_P26_rescue/README.md
+##################################################################
+include: "rules/rescue_analysis.smk"
