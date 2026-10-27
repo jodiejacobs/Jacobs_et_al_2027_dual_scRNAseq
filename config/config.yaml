@@ -10,6 +10,9 @@ cyclum_env: '/private/groups/russelllab/jodie/miniforge3/envs/cyclum'
 # Alignment paths
 fastq_dir: "/private/groups/russelllab/jodie/sequencing_data/scRNAseq/PIP-seq_cells/Jacobs_10524_241203B9" # Add the path to the directory containing the FASTQ files for pipseq
 kallisto_index: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/transcripts.idx" 
+# 10x GEM-X 5' v3 barcode on-list (uncompressed). Copy from Cell Ranger:
+# cellranger-x.y.z/lib/python/cellranger/barcodes/3M-5pgex-jan-2023.txt.gz, then gunzip
+whitelist_10x: "reference/barcodes/3M-5pgex-jan-2023.txt"
 
 # Initial scripts
 filter_script: "snakemake_scripts/filtering/kallisto_bustools_qcfilter_adata_no_pybiomart.py" # Changes to remove biomart dependancy on 3/25/26

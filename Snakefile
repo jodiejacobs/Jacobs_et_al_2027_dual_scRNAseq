@@ -70,17 +70,27 @@ print(f"Condition-Platform combinations: {CONDITION_PLATFORM_COMBOS}")
 def get_fastq_files(sample_id):
     """Get R1/R2 fastq paths for a sample.
 
-    Each of the R1/R2 columns in samples.csv normally holds a single path.
-    To add a second (or third, ...) set of reads for a sample - e.g. a
-    top-up sequencing run or an extra lane - list the paths separated by
-    ';' in both columns, in matching order (R1[i] pairs with R2[i]):
-        cond,10x,1,run1_R1.fastq.gz;run2_R1.fastq.gz,run1_R2.fastq.gz;run2_R2.fastq.gz
+    Extra runs/lanes can be added as more R1,R2 column pairs:
+        cond,10x,1,run1_R1.fq.gz,run1_R2.fq.gz,run2_R1.fq.gz,run2_R2.fq.gz
+    or as ';'-separated paths within the R1/R2 columns (matching order):
+        cond,10x,1,run1_R1.fq.gz;run2_R1.fq.gz,run1_R2.fq.gz;run2_R2.fq.gz
     Returns two lists (r1_files, r2_files), each of length 1 for a
     single-lane sample.
     """
     sample_info = samples_df.loc[sample_id]
-    r1_files = [p.strip() for p in str(sample_info[3]).split(";") if p.strip()]
-    r2_files = [p.strip() for p in str(sample_info[4]).split(";") if p.strip()]
+    # Columns 3,5,7,... are R1 and 4,6,8,... are R2 (one pair per run/lane);
+    # a cell may also hold ';'-separated paths. Empty cells (NaN) are skipped.
+    def _paths(cols):
+        out = []
+        for c in cols:
+            v = sample_info[c]
+            if pd.isna(v):
+                continue
+            out += [p.strip() for p in str(v).split(";") if p.strip()]
+        return out
+    fq_cols = [c for c in samples_df.columns if c >= 3]
+    r1_files = _paths(fq_cols[0::2])
+    r2_files = _paths(fq_cols[1::2])
     if len(r1_files) != len(r2_files):
         raise ValueError(
             f"{sample_id}: R1 column lists {len(r1_files)} file(s) but R2 column "
@@ -169,6 +179,8 @@ rule map_10x:
     input:
         reads1 = lambda wildcards: get_fastq_files(wildcards.sample_id)[0],
         reads2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
+        # 10x GEM-X 5' v3 barcode on-list (3M-5pgex-jan-2023)
+        whitelist = config["whitelist_10x"],
     output:
         h5ad = "results/h5ad_results/{sample_id}.h5ad",
         bus = "results/10x/{sample_id}/output.unfiltered.bus",
@@ -207,6 +219,8 @@ rule map_10x:
             --mm \
             --keep-tmp \
             -x 0,0,16:0,16,28:1,0,0 \
+            -w {input.whitelist} \
+            --strand reverse \
             -o {params.outdir} \
             -t {threads} \
             --h5ad \
@@ -229,11 +243,10 @@ rule map_10x:
 # pre-correction sorted bus file).
 rule inspect_10x_corrected:
     input:
-        bus = "results/10x/{sample_id}/output.unfiltered.bus"
+        bus = "results/10x/{sample_id}/output.unfiltered.bus",
+        whitelist = config["whitelist_10x"]
     output:
         json = "results/10x/{sample_id}/inspect_corrected.json"
-    params:
-        whitelist = "results/10x/{sample_id}/whitelist.txt"
     wildcard_constraints:
         sample_id = ".*_10x"
     log:
@@ -251,7 +264,7 @@ rule inspect_10x_corrected:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate kallisto_bustools
 
-        bustools inspect -w {params.whitelist} -o {output.json} {input.bus}
+        bustools inspect -w {input.whitelist} -o {output.json} {input.bus}
 
         echo "Inspect complete for {wildcards.sample_id}"
         """
