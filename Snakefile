@@ -132,26 +132,26 @@ def get_replicates_for_combo(condition, seq_platform):
 # Main rule that defines the final output
 rule all:
     input:
-        # Use actual sample IDs for rRNA analysis.
-        # Note: {gene}_aligned.bam is intentionally NOT requested here - it's
-        # a temp() intermediate (see align_gene_reads) that Snakemake deletes
-        # once calculate_coverage and extract_16s_sequences have both used
-        # it. coverage.tsv and blast.summary below still pull it through the
-        # DAG transitively.
-        expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
-               sample_id=SAMPLE_IDS,
-               gene=config.get("target_gene", ["GQX67_05945"])),
-        expand("results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary",
-               sample_id=SAMPLE_IDS,
-               gene=config.get("target_gene", ["GQX67_05945"])),
-        expand("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}",
-               zip,
-               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
-        expand("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}",
-               zip,
-               condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
-               seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
+#         # Use actual sample IDs for rRNA analysis.
+#         # Note: {gene}_aligned.bam is intentionally NOT requested here - it's
+#         # a temp() intermediate (see align_gene_reads) that Snakemake deletes
+#         # once calculate_coverage and extract_16s_sequences have both used
+#         # it. coverage.tsv and blast.summary below still pull it through the
+#         # DAG transitively.
+#         expand("results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv",
+#                sample_id=SAMPLE_IDS,
+#                gene=config.get("target_gene", ["GQX67_05945"])),
+#         expand("results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary",
+#                sample_id=SAMPLE_IDS,
+#                gene=config.get("target_gene", ["GQX67_05945"])),
+#         expand("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}",
+#                zip,
+#                condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
+#                seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
+#         expand("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}",
+#                zip,
+#                condition=[c for c, p in CONDITION_PLATFORM_COMBOS],
+#                seq_platform=[p for c, p in CONDITION_PLATFORM_COMBOS]),
         # Integration
         "results/integrated/integrated.h5ad",
 
@@ -449,324 +449,324 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
         echo "Cell cycle annotation complete for {wildcards.sample_id}"
         """
 
-##################################################################
-# rRNA analysis rules
-##################################################################
-# Rule 1: Align extracted gene reads to rRNA reference with BWA
-rule align_gene_reads:
-    input:
-        # r1 = "results/gene_extracted/{sample_id}/{gene}_R1.fastq.gz",
-        r2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
-        ref = config["ref_fasta"],
-        regions = config["rRNA_regions"]
-    output:
-        bam = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam"),
-        bai = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai")
-    log:
-        "logs/align_gene/{sample_id}_{gene}.log"
-    threads: 8
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 1000000,
-        runtime = hms_to_minutes("12:00:00")
-    shell:
-        """
-        # exec > {log} 2>&1
-        set -euo pipefail
-        echo "Starting BWA alignment for {wildcards.sample_id} - {wildcards.gene}"
+# ##################################################################
+# # rRNA analysis rules
+# ##################################################################
+# # Rule 1: Align extracted gene reads to rRNA reference with BWA
+# rule align_gene_reads:
+#     input:
+#         # r1 = "results/gene_extracted/{sample_id}/{gene}_R1.fastq.gz",
+#         r2 = lambda wildcards: get_fastq_files(wildcards.sample_id)[1],
+#         ref = config["ref_fasta"],
+#         regions = config["rRNA_regions"]
+#     output:
+#         bam = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam"),
+#         bai = temp("results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai")
+#     log:
+#         "logs/align_gene/{sample_id}_{gene}.log"
+#     threads: 8
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 1000000,
+#         runtime = hms_to_minutes("12:00:00")
+#     shell:
+#         """
+#         # exec > {log} 2>&1
+#         set -euo pipefail
+#         echo "Starting BWA alignment for {wildcards.sample_id} - {wildcards.gene}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        # Make the directory
-        mkdir -p results/rRNA_analysis/alignment/{wildcards.sample_id}
+#         # Make the directory
+#         mkdir -p results/rRNA_analysis/alignment/{wildcards.sample_id}
 
-        # {input.r2} is one file per lane/run for this sample (see
-        # get_fastq_files in the Snakefile); concatenating gzipped fastqs
-        # is valid (multi-member gzip streams decompress fine), so this
-        # merges however many R2 files the sample has into one before
-        # alignment - unchanged behavior for single-lane samples. Streamed
-        # through process substitution instead of written to a temp file
-        # first, so large samples don't need a second full-size copy of R2
-        # sitting on disk during alignment.
-        #
-        # {input.r2} covers the whole library, but {input.ref} is only the
-        # small rRNA/wMel reference, so the large majority of reads here
-        # won't map. The previous version kept every read (mapped and
-        # unmapped) through sort, which meant runtime/memory/disk scaled
-        # with the full library size instead of the much smaller mapped
-        # fraction - this is almost certainly why large samples were
-        # struggling. `-F 4` drops unmapped reads right after alignment,
-        # before the expensive sort step.
-        bwa mem -t {threads} {input.ref} <(cat {input.r2}) | \
-            samtools view -Sb -F 4 | \
-            samtools sort -@ {threads} -o results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+#         # {input.r2} is one file per lane/run for this sample (see
+#         # get_fastq_files in the Snakefile); concatenating gzipped fastqs
+#         # is valid (multi-member gzip streams decompress fine), so this
+#         # merges however many R2 files the sample has into one before
+#         # alignment - unchanged behavior for single-lane samples. Streamed
+#         # through process substitution instead of written to a temp file
+#         # first, so large samples don't need a second full-size copy of R2
+#         # sitting on disk during alignment.
+#         #
+#         # {input.r2} covers the whole library, but {input.ref} is only the
+#         # small rRNA/wMel reference, so the large majority of reads here
+#         # won't map. The previous version kept every read (mapped and
+#         # unmapped) through sort, which meant runtime/memory/disk scaled
+#         # with the full library size instead of the much smaller mapped
+#         # fraction - this is almost certainly why large samples were
+#         # struggling. `-F 4` drops unmapped reads right after alignment,
+#         # before the expensive sort step.
+#         bwa mem -t {threads} {input.ref} <(cat {input.r2}) | \
+#             samtools view -Sb -F 4 | \
+#             samtools sort -@ {threads} -o results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
 
-        samtools index results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+#         samtools index results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
 
-        # Extract reads for this specific gene using the full chromosome name
-        CHROM=$(samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam | grep "^{wildcards.gene}::" | cut -f1)
+#         # Extract reads for this specific gene using the full chromosome name
+#         CHROM=$(samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam | grep "^{wildcards.gene}::" | cut -f1)
 
-        if [ -z "$CHROM" ]; then
-            echo "ERROR: Gene {wildcards.gene} not found"
-            samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
-            exit 1
-        fi
+#         if [ -z "$CHROM" ]; then
+#             echo "ERROR: Gene {wildcards.gene} not found"
+#             samtools idxstats results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+#             exit 1
+#         fi
 
-        samtools view -b results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam "$CHROM" -o {output.bam}
-        samtools index {output.bam}
+#         samtools view -b results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam "$CHROM" -o {output.bam}
+#         samtools index {output.bam}
 
-        # Clean up the whole-sample intermediate now that the gene-specific
-        # slice has been pulled out of it - even filtered to mapped reads
-        # only, it's not a declared output and nothing else needs it.
-        # NOTE: this file is shared by sample_id only, not by gene, so if
-        # target_gene is ever a list of more than one value, deleting it
-        # here will break any other in-flight/queued gene job for this same
-        # sample that still expects to read it - fine for the current
-        # single-gene config, not safe if that changes.
-        rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
-        rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam.bai
+#         # Clean up the whole-sample intermediate now that the gene-specific
+#         # slice has been pulled out of it - even filtered to mapped reads
+#         # only, it's not a declared output and nothing else needs it.
+#         # NOTE: this file is shared by sample_id only, not by gene, so if
+#         # target_gene is ever a list of more than one value, deleting it
+#         # here will break any other in-flight/queued gene job for this same
+#         # sample that still expects to read it - fine for the current
+#         # single-gene config, not safe if that changes.
+#         rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam
+#         rm -f results/rRNA_analysis/alignment/{wildcards.sample_id}/all_aligned.bam.bai
 
-        echo "Alignment complete for {wildcards.sample_id} - {wildcards.gene}"
-        echo "Filtered to $(samtools view -c {output.bam}) reads in target regions"
-        """
+#         echo "Alignment complete for {wildcards.sample_id} - {wildcards.gene}"
+#         echo "Filtered to $(samtools view -c {output.bam}) reads in target regions"
+#         """
 
-# Rule 2: Calculate coverage depth
-rule calculate_coverage:
-    input:
-        bam = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
-        bai = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai"
-    output:
-        cov = "results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv"
-    log:
-        "logs/coverage/{sample_id}_{gene}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 4000,
-        runtime = hms_to_minutes("30:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Calculating coverage for {wildcards.sample_id} - {wildcards.gene}"
+# # Rule 2: Calculate coverage depth
+# rule calculate_coverage:
+#     input:
+#         bam = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
+#         bai = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai"
+#     output:
+#         cov = "results/rRNA_analysis/coverage/{sample_id}/{gene}_coverage.tsv"
+#     log:
+#         "logs/coverage/{sample_id}_{gene}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 4000,
+#         runtime = hms_to_minutes("30:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Calculating coverage for {wildcards.sample_id} - {wildcards.gene}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        samtools depth {input.bam} > {output.cov}
+#         samtools depth {input.bam} > {output.cov}
 
-        echo "Coverage calculation complete"
-        """
+#         echo "Coverage calculation complete"
+#         """
 
-# Rule 3: Extract 16S sequences from aligned BAM
-rule extract_16s_sequences:
-    input:
-        bam = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
-        bai = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai"
-    output:
-        fasta = "results/rRNA_analysis/extracted_16S/{sample_id}/{gene}_16S.fasta"
-    log:
-        "logs/extract_16s/{sample_id}_{gene}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 4000,
-        runtime = hms_to_minutes("30:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Extracting 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
+# # Rule 3: Extract 16S sequences from aligned BAM
+# rule extract_16s_sequences:
+#     input:
+#         bam = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam",
+#         bai = "results/rRNA_analysis/alignment/{sample_id}/{gene}_aligned.bam.bai"
+#     output:
+#         fasta = "results/rRNA_analysis/extracted_16S/{sample_id}/{gene}_16S.fasta"
+#     log:
+#         "logs/extract_16s/{sample_id}_{gene}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 4000,
+#         runtime = hms_to_minutes("30:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Extracting 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        # Extract reads mapping to 16S region
-        samtools fasta {input.bam} > {output.fasta}
+#         # Extract reads mapping to 16S region
+#         samtools fasta {input.bam} > {output.fasta}
 
-        echo "16S extraction complete"
-        """
+#         echo "16S extraction complete"
+#         """
 
-# Rule 4: BLAST 16S sequences against database
-rule blast_16s:
-    input:
-        fasta = "results/rRNA_analysis/extracted_16S/{sample_id}/{gene}_16S.fasta"
-    output:
-        blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast"
-    params:
-        db = config["blast_db"]
-    log:
-        "logs/blast/{sample_id}_{gene}.log"
-    threads: 16
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 32000,
-        runtime = hms_to_minutes("12:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Running BLAST for {wildcards.sample_id} - {wildcards.gene}"
+# # Rule 4: BLAST 16S sequences against database
+# rule blast_16s:
+#     input:
+#         fasta = "results/rRNA_analysis/extracted_16S/{sample_id}/{gene}_16S.fasta"
+#     output:
+#         blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast"
+#     params:
+#         db = config["blast_db"]
+#     log:
+#         "logs/blast/{sample_id}_{gene}.log"
+#     threads: 16
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 32000,
+#         runtime = hms_to_minutes("12:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Running BLAST for {wildcards.sample_id} - {wildcards.gene}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        blastn -db {params.db} \
-            -query {input.fasta} \
-            -out {output.blast} \
-            -num_threads {threads} \
-            -outfmt 6 \
-            -max_target_seqs 5 \
-            -evalue 1e-5
+#         blastn -db {params.db} \
+#             -query {input.fasta} \
+#             -out {output.blast} \
+#             -num_threads {threads} \
+#             -outfmt 6 \
+#             -max_target_seqs 5 \
+#             -evalue 1e-5
 
-        echo "BLAST complete"
-        """
+#         echo "BLAST complete"
+#         """
 
-# Rule 5: Summarize BLAST results
-rule summarize_blast:
-    input:
-        blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast"
-    output:
-        summary = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary"
-    log:
-        "logs/summarize_blast/{sample_id}_{gene}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 2000,
-        runtime = hms_to_minutes("15:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Summarizing BLAST results for {wildcards.sample_id} - {wildcards.gene}"
+# # Rule 5: Summarize BLAST results
+# rule summarize_blast:
+#     input:
+#         blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast"
+#     output:
+#         summary = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary"
+#     log:
+#         "logs/summarize_blast/{sample_id}_{gene}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 2000,
+#         runtime = hms_to_minutes("15:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Summarizing BLAST results for {wildcards.sample_id} - {wildcards.gene}"
 
-        # Summarize: count hits per subject, track best identity
-        awk '{{count[$2]++; if($3 > best[$2]) best[$2]=$3}}
-             END {{for(s in count) printf "%6d %s (%.3f%% identity)\\n", count[s], s, best[s]}}' \
-            {input.blast} | \
-            sort -k1,1nr -k3,3nr > {output.summary}
+#         # Summarize: count hits per subject, track best identity
+#         awk '{{count[$2]++; if($3 > best[$2]) best[$2]=$3}}
+#              END {{for(s in count) printf "%6d %s (%.3f%% identity)\\n", count[s], s, best[s]}}' \
+#             {input.blast} | \
+#             sort -k1,1nr -k3,3nr > {output.summary}
 
-        echo "BLAST summarization complete"
-        """
+#         echo "BLAST summarization complete"
+#         """
 
-# Rule 6: Plot coverage for samples grouped by condition and seq_platform
-rule plot_coverage_by_group:
-    input:
-        coverage_files = lambda wildcards: expand(
-            "results/rRNA_analysis/coverage/{condition}-{replicate}_{seq_platform}/{gene}_coverage.tsv",
-            condition=wildcards.condition,
-            replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
-            seq_platform=wildcards.seq_platform,
-            gene=config.get("target_gene", ["GQX67_05945"])
-        )
-    output:
-        plot_dir = directory("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}")
-    params:
-        script = config["plot_coverage_script"]
-    log:
-        "logs/plot_coverage/{condition}_{seq_platform}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 8000,
-        runtime = hms_to_minutes("1:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Plotting coverage for {wildcards.condition}_{wildcards.seq_platform}"
+# # Rule 6: Plot coverage for samples grouped by condition and seq_platform
+# rule plot_coverage_by_group:
+#     input:
+#         coverage_files = lambda wildcards: expand(
+#             "results/rRNA_analysis/coverage/{condition}-{replicate}_{seq_platform}/{gene}_coverage.tsv",
+#             condition=wildcards.condition,
+#             replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
+#             seq_platform=wildcards.seq_platform,
+#             gene=config.get("target_gene", ["GQX67_05945"])
+#         )
+#     output:
+#         plot_dir = directory("results/rRNA_analysis/plots/coverage_{condition}_{seq_platform}")
+#     params:
+#         script = config["plot_coverage_script"]
+#     log:
+#         "logs/plot_coverage/{condition}_{seq_platform}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 8000,
+#         runtime = hms_to_minutes("1:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Plotting coverage for {wildcards.condition}_{wildcards.seq_platform}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        mkdir -p {output.plot_dir}
+#         mkdir -p {output.plot_dir}
 
-        # Create file list
-        echo {input.coverage_files} | tr ' ' '\\n' > {output.plot_dir}/coverage_files.txt
+#         # Create file list
+#         echo {input.coverage_files} | tr ' ' '\\n' > {output.plot_dir}/coverage_files.txt
 
-        python {params.script} {output.plot_dir}/coverage_files.txt \
-            --output-dir {output.plot_dir}
+#         python {params.script} {output.plot_dir}/coverage_files.txt \
+#             --output-dir {output.plot_dir}
 
-        echo "Coverage plotting complete"
-        """
+#         echo "Coverage plotting complete"
+#         """
 
-# Rule 7: Plot BLAST pie charts for samples grouped by condition and seq_platform
-rule plot_blast_by_group:
-    input:
-        blast_summaries = lambda wildcards: expand(
-            "results/rRNA_analysis/blast/{condition}-{replicate}_{seq_platform}/{gene}.blast.summary",
-            condition=wildcards.condition,
-            replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
-            seq_platform=wildcards.seq_platform,
-            gene=config.get("target_gene", ["GQX67_05945"])
-        )
-    output:
-        plot_dir = directory("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}")
-    params:
-        script = config["plot_blast_script"]
-    log:
-        "logs/plot_blast/{condition}_{seq_platform}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 8000,
-        runtime = hms_to_minutes("1:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Plotting BLAST results for {wildcards.condition}_{wildcards.seq_platform}"
+# # Rule 7: Plot BLAST pie charts for samples grouped by condition and seq_platform
+# rule plot_blast_by_group:
+#     input:
+#         blast_summaries = lambda wildcards: expand(
+#             "results/rRNA_analysis/blast/{condition}-{replicate}_{seq_platform}/{gene}.blast.summary",
+#             condition=wildcards.condition,
+#             replicate=get_replicates_for_combo(wildcards.condition, wildcards.seq_platform),
+#             seq_platform=wildcards.seq_platform,
+#             gene=config.get("target_gene", ["GQX67_05945"])
+#         )
+#     output:
+#         plot_dir = directory("results/rRNA_analysis/plots/blast_{condition}_{seq_platform}")
+#     params:
+#         script = config["plot_blast_script"]
+#     log:
+#         "logs/plot_blast/{condition}_{seq_platform}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 8000,
+#         runtime = hms_to_minutes("1:00:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Plotting BLAST results for {wildcards.condition}_{wildcards.seq_platform}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        mkdir -p {output.plot_dir}
+#         mkdir -p {output.plot_dir}
 
-        # Plot each summary file
-        for summary in {input.blast_summaries}; do
-            echo "Processing $(basename $summary)..."
-            python {params.script} "$summary" --output-dir {output.plot_dir}
-        done
+#         # Plot each summary file
+#         for summary in {input.blast_summaries}; do
+#             echo "Processing $(basename $summary)..."
+#             python {params.script} "$summary" --output-dir {output.plot_dir}
+#         done
 
-        echo "BLAST plotting complete"
-        """
+#         echo "BLAST plotting complete"
+#         """
 
-# Optional: Extract highly represented 16S sequences
-rule extract_abundant_16s:
-    input:
-        blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast",
-        summary = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary"
-    output:
-        ids = "results/rRNA_analysis/abundant_16S/{sample_id}/{gene}_abundant_ids.txt",
-        fasta = "results/rRNA_analysis/abundant_16S/{sample_id}/{gene}_abundant.fasta"
-    params:
-        db = config["blast_db"],
-        min_reads = config.get("min_blast_reads", 100)
-    log:
-        "logs/extract_abundant/{sample_id}_{gene}.log"
-    threads: 1
-    resources:
-        slurm_partition = "medium",
-        mem_mb = 4000,
-        runtime = hms_to_minutes("30:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        echo "Extracting abundant 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
+# # Optional: Extract highly represented 16S sequences
+# rule extract_abundant_16s:
+#     input:
+#         blast = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast",
+#         summary = "results/rRNA_analysis/blast/{sample_id}/{gene}.blast.summary"
+#     output:
+#         ids = "results/rRNA_analysis/abundant_16S/{sample_id}/{gene}_abundant_ids.txt",
+#         fasta = "results/rRNA_analysis/abundant_16S/{sample_id}/{gene}_abundant.fasta"
+#     params:
+#         db = config["blast_db"],
+#         min_reads = config.get("min_blast_reads", 100)
+#     log:
+#         "logs/extract_abundant/{sample_id}_{gene}.log"
+#     threads: 1
+#     resources:
+#         slurm_partition = "medium",
+#         mem_mb = 4000,
+#         runtime = hms_to_minutes("30:00")
+#     shell:
+#         """
+#         exec > {log} 2>&1
+#         echo "Extracting abundant 16S sequences for {wildcards.sample_id} - {wildcards.gene}"
 
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate sra-tools
+#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+#         conda activate sra-tools
 
-        # Extract IDs with at least min_reads reads
-        awk -v min={params.min_reads} '$1 >= min {{print $2}}' {input.summary} > {output.ids}
+#         # Extract IDs with at least min_reads reads
+#         awk -v min={params.min_reads} '$1 >= min {{print $2}}' {input.summary} > {output.ids}
 
-        # Extract sequences from BLAST database
-        if [ -s {output.ids} ]; then
-            blastdbcmd -db {params.db} \
-                -entry_batch {output.ids} \
-                -out {output.fasta}
-        else
-            echo "No abundant sequences found" > {output.fasta}
-        fi
+#         # Extract sequences from BLAST database
+#         if [ -s {output.ids} ]; then
+#             blastdbcmd -db {params.db} \
+#                 -entry_batch {output.ids} \
+#                 -out {output.fasta}
+#         else
+#             echo "No abundant sequences found" > {output.fasta}
+#         fi
 
-        echo "Abundant sequence extraction complete"
-        """
+#         echo "Abundant sequence extraction complete"
+#         """
 
 ##################################################################
 # Integration via frozen-atlas projection (now the default path)
