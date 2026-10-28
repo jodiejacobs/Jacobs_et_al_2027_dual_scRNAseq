@@ -331,7 +331,7 @@ rule validate_wMel_gene_capture:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.h5ad} \
             --output {output.report}
 
@@ -373,7 +373,7 @@ rule gene_group_stats:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.h5ad} \
             --outdir {params.outdir} \
             --prefix Wolbachia:GQ \
@@ -406,7 +406,7 @@ rule filter_h5ad:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input} \
             --output {output.filtered_h5ad}
 
@@ -442,7 +442,7 @@ rule annotate_cell_cycle: # This needs the cyclum conda environment
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {CYCLUM_ENV}
 
-        python {params.script} \
+        {CYCLUM_ENV}/bin/python {params.script} \
             --input {input.h5ad} \
             --output {output.annotated_h5ad}
 
@@ -824,7 +824,7 @@ rule integrate:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --atlas {input.atlas} \
             --query {input.files} \
             --out_path {output.integrated} \

@@ -11,7 +11,7 @@
 
 RESCUE_DIR     = "results/rescue"
 RESCUE_SCRIPTS = "snakemake_scripts/analysis/mei_P26_rescue"
-EDGER_ENV      = config.get("edger_env", "edger")
+EDGER_ENV      = config.get("edger_env", "/private/groups/russelllab/jodie/miniforge3/envs/edger")
 RESCUE_LABEL   = config.get("rescue_label_col", "cell_type_annotation_broad")
 RESCUE_MINCONF = config.get("rescue_min_confidence", 0.5)
 RESCUE_MINCELL = config.get("rescue_min_cells", 20)
@@ -42,7 +42,7 @@ rule rescue_pseudobulk:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
-        python {RESCUE_SCRIPTS}/01_build_pseudobulk.py \
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/01_build_pseudobulk.py \
             --integrated {input.integrated} --filtered {input.filtered} \
             --outdir {params.outdir} --label_col {RESCUE_LABEL} \
             --min_confidence {RESCUE_MINCONF} {params.qc_flag}
@@ -65,7 +65,7 @@ rule rescue_titer:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
-        python {RESCUE_SCRIPTS}/02_wolbachia_titer.py \
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/02_wolbachia_titer.py \
             --pseudobulk_dir {params.indir} --outdir {params.outdir} --min_cells {RESCUE_MINCELL}
         """
 
@@ -91,7 +91,7 @@ rule rescue_de:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {EDGER_ENV}
-        Rscript {RESCUE_SCRIPTS}/03_edger_de.R \
+        {EDGER_ENV}/bin/Rscript {RESCUE_SCRIPTS}/03_edger_de.R \
             --pseudobulk_dir {params.indir} --outdir {params.outdir} \
             --min_cells {RESCUE_MINCELL} --min_wmel_umis {params.min_wmel} \
             --annotation {input.annotation} {params.block}
@@ -112,7 +112,7 @@ rule rescue_composition:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
-        python {RESCUE_SCRIPTS}/04_cell_composition.py \
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/04_cell_composition.py \
             --pseudobulk_dir {params.indir} --outdir {params.outdir}
         """
 
@@ -133,5 +133,5 @@ rule rescue_summary:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
-        python {RESCUE_SCRIPTS}/05_rescue_summary.py --de_dir {params.indir} --outdir {params.outdir}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/05_rescue_summary.py --de_dir {params.indir} --outdir {params.outdir}
         """
