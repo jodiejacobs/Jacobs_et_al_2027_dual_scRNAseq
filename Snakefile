@@ -363,7 +363,7 @@ rule gene_group_stats:
     threads: 1
     resources:
         slurm_partition = "medium",
-        mem_mb = lambda wildcards, attempt: 16000 * attempt,  # was 8000; OOM'd on Mei-P26_wMel-1_10x, scales up on retry
+        mem_mb = lambda wildcards, attempt: 32000 * attempt,  # was 8000; OOM'd on Mei-P26_wMel-1_10x, scales up on retry
         runtime = hms_to_minutes("30:00")
     shell:
         """
@@ -411,7 +411,9 @@ rule filter_h5ad:
             --output {output.filtered_h5ad}
 
         echo "Compressing original h5ad file"
-        gzip {input}
+            if [ ! -f "{input}.gz" ]; then
+                gzip {input}
+            fi
         echo "Filtering complete for {wildcards.sample_id}"
         """
 
