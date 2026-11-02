@@ -3,6 +3,8 @@ Claude*
 __pycache__/
 *.py[codz]
 *$py.class
+Figures*
+figures*
 
 # C extensions
 *.so
