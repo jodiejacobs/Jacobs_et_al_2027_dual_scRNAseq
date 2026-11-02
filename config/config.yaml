@@ -125,7 +125,7 @@ gene_set_libraries:
 # nmf_annotate_mem:       32000
 # nmf_annotate_time:      "4:00:00"
 
-# mei-P26 rescue analysis (rules/rescue_analysis.smk); all keys optional
+# mei-P26 rescue analysis (rescue_* rules at the end of the Snakefile); all keys optional
 edger_env: "/private/groups/russelllab/jodie/miniforge3/envs/edger"  # R + bioconductor-edger
 rescue_label_col: "cell_type_annotation_broad"   # or "cell_type_annotation" (finer)
 rescue_min_confidence: 0.5     # atlas label KNN confidence
