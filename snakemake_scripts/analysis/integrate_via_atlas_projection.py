@@ -652,7 +652,7 @@ def plot_diagnostics(query, label_cols, fig_dir):
             order = df.groupby(atlas_col, observed=True)["wolbachia_titer"].median().sort_values(ascending=False).index
             fig, ax = plt.subplots(figsize=(max(8, len(order) * 0.5), 5))
             data = [df.loc[df[atlas_col] == ct, "wolbachia_titer"].dropna().values for ct in order]
-            ax.boxplot(data, labels=order, showfliers=False)
+            ax.boxplot(data, tick_labels=order, showfliers=False)
             ax.set_ylabel("Wolbachia titer")
             ax.set_title(f"Wolbachia titer by atlas cell type -- {col}")
             plt.xticks(rotation=45, ha="right")
