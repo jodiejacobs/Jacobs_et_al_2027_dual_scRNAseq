@@ -1050,7 +1050,7 @@ rule rescue_pseudobulk:
         qc_flag = "--drop_qc_outliers" if config.get("rescue_drop_qc_outliers", False) else "",
     log: "logs/rescue/pseudobulk.log"
     resources:
-        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("2:00:00")
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("2:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -1073,7 +1073,7 @@ rule rescue_titer:
         indir = f"{RESCUE_DIR}/pseudobulk", outdir = f"{RESCUE_DIR}/titer",
     log: "logs/rescue/titer.log"
     resources:
-        slurm_partition = "medium", mem_mb = 32000, runtime = hms_to_minutes("1:00:00")
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("1:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -1099,7 +1099,7 @@ rule rescue_de:
         min_wmel = config.get("rescue_min_wmel_umis", 2000),
     log: "logs/rescue/de.log"
     resources:
-        slurm_partition = "medium", mem_mb = 16000, runtime = hms_to_minutes("1:00:00")
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("1:00:00")
     shell:
         """
         exec > {log} 2>&1
@@ -1120,7 +1120,7 @@ rule rescue_composition:
         indir = f"{RESCUE_DIR}/pseudobulk", outdir = f"{RESCUE_DIR}/composition",
     log: "logs/rescue/composition.log"
     resources:
-        slurm_partition = "medium", mem_mb = 8000, runtime = hms_to_minutes("0:30:00")
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("0:30:00")
     shell:
         """
         exec > {log} 2>&1
@@ -1141,7 +1141,7 @@ rule rescue_summary:
         indir = f"{RESCUE_DIR}/de", outdir = f"{RESCUE_DIR}/summary",
     log: "logs/rescue/summary.log"
     resources:
-        slurm_partition = "medium", mem_mb = 8000, runtime = hms_to_minutes("0:30:00")
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("0:30:00")
     shell:
         """
         exec > {log} 2>&1
