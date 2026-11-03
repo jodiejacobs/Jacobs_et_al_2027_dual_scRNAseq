@@ -132,7 +132,7 @@ def calculate_wolbachia_titer(adata):
 
     var_names = adata.var_names.astype(str)
     dmel_mask = var_names.str.startswith("FB")
-    wMel_mask = var_names.str.startswith("GQ")
+    wMel_mask = var_names.str.startswith(("WD", "GQX67"))
 
     def _sum_mask(mask):
         if mask.sum() == 0:
@@ -150,7 +150,7 @@ def calculate_wolbachia_titer(adata):
 
     adata.obs['wolbachia_titer'] = titer
     print(f"  Dmel genes (FB*): {int(dmel_mask.sum())}  "
-          f"wMel genes (GQ*): {int(wMel_mask.sum())}")
+          f"wMel genes (WD* + GQX67*): {int(wMel_mask.sum())}")
     print(f"  Mean: {titer.mean():.4f}  Median: {np.median(titer):.4f}")
     return adata
 

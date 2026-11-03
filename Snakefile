@@ -376,7 +376,7 @@ rule gene_group_stats:
         {SCANPY_ENV}/bin/python {params.script} \
             --input {input.h5ad} \
             --outdir {params.outdir} \
-            --prefix Wolbachia:GQ \
+            --prefix Wolbachia:WD,GQX67 \
             --prefix Drosophila:FB
 
         echo "Gene-group stats complete for {wildcards.sample_id}"

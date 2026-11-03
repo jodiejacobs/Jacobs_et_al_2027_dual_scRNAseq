@@ -30,7 +30,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 HOST_PREFIX = "FB"
-WMEL_PREFIX = "GQ"
+WMEL_PREFIX = ("WD", "GQX67")  # wMel genes are WD*; 16S rRNA kept its old ID GQX67_05945
 
 
 def parse_args():

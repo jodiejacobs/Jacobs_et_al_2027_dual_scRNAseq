@@ -57,7 +57,7 @@ def parse_prefixes(prefix_args):
         if ':' not in item:
             raise ValueError(f"--prefix must be LABEL:PREFIX, got '{item}'")
         label, prefix = item.split(':', 1)
-        groups[label] = prefix
+        groups[label] = tuple(prefix.split(","))  # comma-separated prefixes allowed, e.g. Wolbachia:WD,GQX67
     return groups
 
 
@@ -188,7 +188,7 @@ def main():
     )
     args = parser.parse_args()
 
-    prefix_args = args.prefix or ['Wolbachia:GQ', 'Drosophila:FB']
+    prefix_args = args.prefix or ['Wolbachia:WD,GQX67', 'Drosophila:FB']
     groups = parse_prefixes(prefix_args)
 
     # JUDGMENT CALL: which group counts as "titer" for panels A/D. Auto-detects

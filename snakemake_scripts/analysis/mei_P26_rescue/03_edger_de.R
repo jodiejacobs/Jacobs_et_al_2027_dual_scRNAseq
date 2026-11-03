@@ -66,6 +66,7 @@ meta$replicate <- factor(meta$replicate)
 host <- read_counts(file.path(opt$pseudobulk_dir, "pseudobulk_host_counts.tsv.gz"))
 wmel <- read_counts(file.path(opt$pseudobulk_dir, "pseudobulk_wolbachia_counts.tsv.gz"))
 host <- host[, meta$pb_id]; wmel <- wmel[, meta$pb_id]
+if (nrow(wmel) == 0) stop("pseudobulk_wolbachia_counts has 0 genes -- check WMEL_PREFIX in 01_build_pseudobulk.py matches the reference")
 
 ref_geno <- "OreR"
 alt_geno <- setdiff(unique(meta$geno), ref_geno)
