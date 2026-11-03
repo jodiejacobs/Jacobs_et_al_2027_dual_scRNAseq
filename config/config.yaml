@@ -23,7 +23,7 @@ transcripts_to_genes: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/tr
 filter_threads: 8
 filter_cpus: 16
 filter_mem: 256000  # MB
-filter_time: "4:00:00"  # HH:MM:SS
+filter_time: "2:00:00"  # HH:MM:SS
 filter_partition: "medium"  # SLURM partition for filter jobs
 
 # Compute resources for map_10x (kb count pseudoalignment)
@@ -53,7 +53,7 @@ integrate_atlas_script: "snakemake_scripts/analysis/integrate_via_atlas_projecti
 integrate_threads: 16
 integrate_partition: "medium"
 integrate_mem: 128000
-integrate_time: "8:00:00"
+integrate_time: "4:00:00"
 
 # Reference atlas for atlas-projected integration (rule integrate).
 # Fly Cell Atlas / BioHub ovary object -- see integrate_via_atlas_projection.py.
