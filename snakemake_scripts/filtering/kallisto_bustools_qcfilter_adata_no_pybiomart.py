@@ -446,19 +446,22 @@ def process_data_with_metrics(key, matrix, log_to_file=True):
         all_metrics.append(raw_metrics)
         print_qc_summary(raw_metrics)
 
-        print("\n=== Doublet detection ===")
-        adata = identify_doublets(adata, fig_dir)
-        all_metrics.append(
-            calculate_qc_metrics(adata, sample_name=key,
-                                  stage="post_doublet_detection"))
-        print_qc_summary(all_metrics[-1])
-
+        # Filter empty droplets BEFORE Scrublet: running it on the unfiltered
+        # kallisto|bustools matrix (~1M barcodes) is extremely slow and breaks
+        # its gene-variability fit.
         print("\n=== QC filtering ===")
         filtered_adata = qc_plots(adata, fig_dir)
         del adata; gc.collect()
 
         all_metrics.append(
             calculate_qc_metrics(filtered_adata, sample_name=key, stage="filtered"))
+        print_qc_summary(all_metrics[-1])
+
+        print("\n=== Doublet detection ===")
+        filtered_adata = identify_doublets(filtered_adata, fig_dir)
+        all_metrics.append(
+            calculate_qc_metrics(filtered_adata, sample_name=key,
+                                  stage="post_doublet_detection"))
         print_qc_summary(all_metrics[-1])
 
         print("\n=== Normalising ===")
