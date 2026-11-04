@@ -85,7 +85,7 @@ n_top_genes: 2000
 
 # Variable for analysis (None = auto-detect)
 continuous_var: "wolbachia_titer"  # or None
-categorical_var: "treatment"  # or None
+categorical_var: "condition"  # genotype_infection; "treatment" is not in the integrated object
 
 # GSEA settings
 gene_set_libraries:
@@ -94,11 +94,13 @@ gene_set_libraries:
   - "GO_Molecular_Function_2018"
   - "KEGG_2019"
 
-# # NMF scripts
-# nmf_annotate_script:       "snakemake_scripts/analysis/annotate_nmf_programs.py"
-# nmf_continuous_script:  "snakemake_scripts/analysis/annotate_nmf_continuous_var.py"
-# nmf_categorical_script: "snakemake_scripts/analysis/annotate_nmf_categorical_var.py"
-# nmf_script: "snakemake_scripts/analysis/nmf_programs.py"
+# NMF scripts (rules nmf_* in the Snakefile; run with: snakemake nmf_all)
+nmf_annotate_script:    "snakemake_scripts/analysis/annotate_nmf_programs.py"
+nmf_continuous_script:  "snakemake_scripts/analysis/nmf_continuous_var.py"
+nmf_categorical_script: "snakemake_scripts/analysis/nmf_categorical_var.py"
+nmf_script: "snakemake_scripts/analysis/nmf_programs.py"
+gsea_script: "snakemake_scripts/analysis/cluster_gsea.py"
+gsea_cluster_column: "cell_type_annotation"   # obs column cluster_gsea compares (one vs rest)
 
 # nmf_threads: 8
 # nmf_mem: 64000
@@ -134,3 +136,9 @@ rescue_min_wmel_umis: 2000     # per pseudobulk, Wolbachia DE only
 rescue_block_replicate: false  # add replicate to host design (uses 1 of 4 residual df)
 rescue_drop_qc_outliers: false
 wmel_gff: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/Drosophila_melanogaster_wMel_combined_16S.gtf"  # wMel gene products for 09 (GTF or GFF3; only Wolbachia lines are read)
+# Optional inputs for rule rescue_secretion (11). Missing files are skipped, and
+# secretion_class then reads "unknown"; everything else still runs.
+wmel_proteins: "reference/wMel_proteins/wmel_proteins.faa"   # RefSeq wMel proteome (GCF_000008025.1)
+wmel_signalp: "reference/wMel_proteins/wmel_deepsig.gff"     # signal peptides: DeepSig GFF or TSV of protein_id + Y/N
+rescue_secretion_min_aa: 400    # length floor for the "uncharacterised" candidate tier
+rescue_secretion_min_cpm: 100   # germline CPM floor for the shortlist

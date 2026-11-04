@@ -15,6 +15,7 @@ Pseudobulk analysis by atlas cell type (`cell_type_annotation_broad` by default)
 | Is rescue larger than selection bias? Interaction-supported rescue genes | `08_rescue_null.R` | `rescue_null/rescue_null_summary.tsv`, `rescue_supported_genes.tsv` |
 | Wolbachia DE robustness (replicates, normalisation, pooled 2 vs 2) | `09_wolbachia_followup.R` | `wolbachia_followup/wolbachia_candidates.tsv` |
 | Integrated object without debris, for NMF / GSEA / UMAP / summary scripts | `10_clean_integrated.py` | `results/integrated/integrated_clean.h5ad` |
+| Which wMel genes could act in host cells (secretion class + evidence + DE) | `11_wolbachia_secretion.py` | `wolbachia_followup/wolbachia_secretion_all.tsv`, `_shortlist.tsv` |
 
 ## Run
 
@@ -71,3 +72,39 @@ instead. Per-sample counts are in `label_qc/cell_counts_by_sample.tsv`.
 - **Titer p-values** come from a quasi-binomial GLM. Pseudobulks from the same sample are correlated across tissues, and a sample random effect isn't estimable with 2 replicates, so check replicate agreement in `titer_by_tissue.pdf`.
 - **Genotype contrasts** compare Mei-P26 to OreR, so background differences beyond the mei-P26 allele also land in `genotype_*`.
 - **Rescue categories** (`05`) use descriptive cutoffs (rescue fraction 0.25 / 0.75). `FDR_interaction` is the formal test.
+
+## Wolbachia secretion annotation (11)
+
+Runs as `rule rescue_secretion`, part of `rescue_followup_all`:
+
+```bash
+snakemake rescue_followup_all --executor slurm -j 16
+```
+
+The protein FASTA and the signal-peptide calls are params, not inputs. When
+`wmel_proteins` / `wmel_signalp` are unset in config.yaml, or point at files
+that do not exist, the rule still runs: `secretion_class` reads "unknown" for
+every locus, the "uncharacterised" tier drops out, and ranking falls back to
+published evidence, eukaryote-like domains and expression. `wmel_gff` IS
+required; without it the rule stops with a message.
+
+| config key | default | effect |
+|---|---|---|
+| `wmel_gff` | (none) | annotation with Wolbachia locus tags; required |
+| `wmel_proteins` | `reference/wMel_proteins/wmel_proteins.faa` | protein lengths + the transmembrane screen |
+| `wmel_signalp` | `reference/wMel_proteins/wmel_deepsig.gff` | signal peptides (DeepSig GFF, or TSV of protein_id + Y/N) |
+| `rescue_secretion_min_aa` | 400 | length floor for the "uncharacterised" tier |
+| `rescue_secretion_min_cpm` | 100 | germline CPM floor for the shortlist |
+
+`wmel_proteins.faa` is the RefSeq wMel proteome (GCF_000008025.1, same assembly
+as the GTF) and `wmel_deepsig.gff` holds DeepSig signal-peptide calls for it.
+Both ship in `reference/wMel_proteins/`. To redo the predictions, run the script
+directly with `--write_faa out.faa` to dump the proteins named in the GTF for a
+web predictor (DeepTMHMM, SignalP), or use `run_deepsig.py`, which runs DeepSig
+locally under Keras 3.
+
+A Sec signal peptide means the bacterial envelope, not the host cytoplasm;
+host-cytoplasmic delivery goes through the T4SS, whose signal is C-terminal and
+not predictable from sequence. Rank by the evidence tier, not the class, and
+never drop a candidate because the Kyte-Doolittle screen calls it membrane: it
+calls TomO and WalE1 membrane, and both act in host cells.

@@ -838,175 +838,211 @@ rule integrate:
         echo "Atlas-projected integration complete"
         """
 
-# ##################################################################
-# # Gene program and pathway analysis rules
-# ##################################################################
-# rule nmf_programs:
-#     input:
-#         h5ad = "results/integrated/integrated_with_cellcycle.h5ad"
-#     output:
-#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
-#         summary = "results/nmf_programs/SUMMARY.txt",
-#         flag = touch("results/nmf_programs/.done")
-#     params:
-#         script = config.get("nmf_script"),
-#         output_dir = "results/nmf_programs",
-#         n_programs = config.get("n_programs", 15),
-#         n_top_genes = config.get("n_top_genes", 2000),
-#         organism = config.get("organism", "Fly"),
-#         gene_id_type = config.get("gene_id_type", "flybase"),
-#         flybase_annotation = config.get("flybase_annotation",
-#             "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
-#     log:
-#         "logs/nmf/nmf_programs.log"
-#     threads:
-#         config.get("nmf_threads", 8)
-#     resources:
-#         slurm_partition = config.get("nmf_partition", "medium"),
-#         mem_mb          = config.get("nmf_mem", 64000),
-#         runtime      = hms_to_minutes(config.get("nmf_time", "4:00:00"))
-#     shell:
-#         """
-#         exec > {log} 2>&1
-#         echo "Starting NMF program discovery"
+##################################################################
+# Gene program and pathway analysis (debris-free integrated object)
+#   snakemake nmf_all        NMF programs + titer / condition / annotation
+#   snakemake cluster_gsea   one-vs-rest GSEA per cell type
+# Input is integrated_clean.h5ad from rule rescue_integrated_clean.
+##################################################################
+rule nmf_all:
+    input:
+        "results/nmf_programs/.done",
+        "results/nmf_continuous_var/.done",
+        "results/nmf_categorical_var/.done",
+        "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
 
-#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-#         conda activate {SCANPY_ENV}
+rule cluster_gsea:
+    input:
+        h5ad = "results/integrated/integrated_clean.h5ad",
+        annotation = config["flybase_annotation"],
+    output:
+        flag = touch("results/cluster_gsea/.done"),
+    params:
+        script = config.get("gsea_script", "snakemake_scripts/analysis/cluster_gsea.py"),
+        output_dir = "results/cluster_gsea",
+        cluster_column = config.get("gsea_cluster_column", "cell_type_annotation"),
+    log: "logs/gsea/cluster_gsea.log"
+    threads: 4
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("4:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        python {params.script} \
+            --input {input.h5ad} --output_dir {params.output_dir} \
+            --flybase_annotation {input.annotation} \
+            --cluster_column {params.cluster_column} --threads {threads}
+        """
 
-#         python {params.script} \
-#             --input {input.h5ad} \
-#             --output_dir {params.output_dir} \
-#             --n_programs {params.n_programs} \
-#             --n_top_genes {params.n_top_genes} \
-#             --organism {params.organism} \
-#             --gene_id_type {params.gene_id_type} \
-#             --flybase_annotation {params.flybase_annotation}
+rule nmf_programs:
+    input:
+        h5ad = "results/integrated/integrated_clean.h5ad"
+    output:
+        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
+        summary = "results/nmf_programs/SUMMARY.txt",
+        flag = touch("results/nmf_programs/.done")
+    params:
+        script = config.get("nmf_script"),
+        output_dir = "results/nmf_programs",
+        n_programs = config.get("n_programs", 15),
+        n_top_genes = config.get("n_top_genes", 2000),
+        organism = config.get("organism", "Fly"),
+        gene_id_type = config.get("gene_id_type", "flybase"),
+        flybase_annotation = config.get("flybase_annotation",
+            "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
+    log:
+        "logs/nmf/nmf_programs.log"
+    threads:
+        config.get("nmf_threads", 8)
+    resources:
+        slurm_partition = config.get("nmf_partition", "medium"),
+        mem_mb          = config.get("nmf_mem", 64000),
+        runtime      = hms_to_minutes(config.get("nmf_time", "4:00:00"))
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Starting NMF program discovery"
 
-#         echo "NMF program discovery complete"
-#         """
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
 
-# rule nmf_continuous_var:
-#     input:
-#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
-#     output:
-#         correlations = "results/nmf_continuous_var/program_correlations.csv",
-#         summary = "results/nmf_continuous_var/SUMMARY.txt",
-#         flag = touch("results/nmf_continuous_var/.done")
-#     params:
-#         script = config.get("nmf_continuous_script"),
-#         output_dir = "results/nmf_continuous_var",
-#         continuous_var = config.get("continuous_var", None),  # Auto-detect if None
-#         flybase_annotation = config.get("flybase_annotation",
-#             "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
-#     log:
-#         "logs/nmf/nmf_continuous_var.log"
-#     threads:
-#         config.get("nmf_continuous_threads", 4)
-#     resources:
-#         slurm_partition = config.get("nmf_continuous_partition", "medium"),
-#         mem_mb = config.get("nmf_continuous_mem", 32000),
-#         runtime = hms_to_minutes(config.get("nmf_continuous_time", "2:00:00"))
-#     shell:
-#         """
-#         exec > {log} 2>&1
-#         echo "Starting NMF continuous variable analysis"
+        python {params.script} \
+            --input {input.h5ad} \
+            --output_dir {params.output_dir} \
+            --n_programs {params.n_programs} \
+            --n_top_genes {params.n_top_genes} \
+            --organism {params.organism} \
+            --gene_id_type {params.gene_id_type} \
+            --flybase_annotation {params.flybase_annotation} \
+            --use_raw
 
-#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-#         conda activate {SCANPY_ENV}
+        echo "NMF program discovery complete"
+        """
 
-#         python {params.script} \
-#             --input {input.adata_with_programs} \
-#             --output_dir {params.output_dir} \
-#             --continuous_var {params.continuous_var} \
-#             --flybase_annotation {params.flybase_annotation}
+rule nmf_continuous_var:
+    input:
+        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
+    output:
+        correlations = "results/nmf_continuous_var/program_correlations.csv",
+        summary = "results/nmf_continuous_var/SUMMARY.txt",
+        flag = touch("results/nmf_continuous_var/.done")
+    params:
+        script = config.get("nmf_continuous_script"),
+        output_dir = "results/nmf_continuous_var",
+        continuous_var = config.get("continuous_var", None),  # Auto-detect if None
+        flybase_annotation = config.get("flybase_annotation",
+            "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz")
+    log:
+        "logs/nmf/nmf_continuous_var.log"
+    threads:
+        config.get("nmf_continuous_threads", 4)
+    resources:
+        slurm_partition = config.get("nmf_continuous_partition", "medium"),
+        mem_mb = config.get("nmf_continuous_mem", 32000),
+        runtime = hms_to_minutes(config.get("nmf_continuous_time", "2:00:00"))
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Starting NMF continuous variable analysis"
 
-#         echo "NMF continuous variable analysis complete"
-#         """
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
 
-# rule nmf_categorical_var:
-#     input:
-#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
-#     output:
-#         comparison = "results/nmf_categorical_var/program_comparison.csv",
-#         flag = touch("results/nmf_categorical_var/.done")
-#     params:
-#         script = config.get("nmf_categorical_script"),
-#         output_dir = "results/nmf_categorical_var",
-#         categorical_var = config.get("categorical_var", None)  # Auto-detect if None
-#     log:
-#         "logs/nmf/nmf_categorical_var.log"
-#     threads:
-#         config.get("nmf_categorical_threads", 4)
-#     resources:
-#         slurm_partition = config.get("nmf_categorical_partition", "medium"),
-#         mem_mb = config.get("nmf_categorical_mem", 32000),
-#         runtime = hms_to_minutes(config.get("nmf_categorical_time", "2:00:00"))
-#     shell:
-#         """
-#         exec > {log} 2>&1
-#         echo "Starting NMF categorical variable analysis"
+        python {params.script} \
+            --input {input.adata_with_programs} \
+            --output_dir {params.output_dir} \
+            --continuous_var {params.continuous_var} \
+            --flybase_annotation {params.flybase_annotation}
 
-#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-#         conda activate {SCANPY_ENV}
+        echo "NMF continuous variable analysis complete"
+        """
 
-#         python {params.script} \
-#             --input {input.adata_with_programs} \
-#             --output_dir {params.output_dir} \
-#             --categorical_var {params.categorical_var}
+rule nmf_categorical_var:
+    input:
+        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad"
+    output:
+        comparison = "results/nmf_categorical_var/program_comparison.csv",
+        flag = touch("results/nmf_categorical_var/.done")
+    params:
+        script = config.get("nmf_categorical_script"),
+        output_dir = "results/nmf_categorical_var",
+        categorical_var = config.get("categorical_var", None)  # Auto-detect if None
+    log:
+        "logs/nmf/nmf_categorical_var.log"
+    threads:
+        config.get("nmf_categorical_threads", 4)
+    resources:
+        slurm_partition = config.get("nmf_categorical_partition", "medium"),
+        mem_mb = config.get("nmf_categorical_mem", 32000),
+        runtime = hms_to_minutes(config.get("nmf_categorical_time", "2:00:00"))
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Starting NMF categorical variable analysis"
 
-#         echo "NMF categorical variable analysis complete"
-#         """
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
 
-# rule nmf_annotate_programs:
-#     input:
-#         adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
-#         nmf_done            = "results/nmf_programs/.done",
-#         mapping             = config["transcripts_to_genes"]
-#     output:
-#         output  = "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
-#     params:
-#         script       = config.get("nmf_annotate_script"),
-#         output_dir   = "results/nmf_annotate_programs",
-#         program_dir  = "results/nmf_programs",
-#         sample_name  = config.get("nmf_annotate_sample", "wolbachia_infection"),
-#         titer_var    = config.get("continuous_var", "wolbachia_titer"),
-#         cc_s_var     = config.get("cc_s_var",      "S_score"),
-#         cc_g2m_var   = config.get("cc_g2m_var",    "G2M_score"),
-#         cc_phase_var = config.get("cc_phase_var",  "phase"),
-#         top_genes    = config.get("nmf_annotate_top_genes", 200),
-#         skip_gsea    = "--skip_gsea" if config.get("nmf_annotate_skip_gsea", False) else "",
-#         skip_fly     = "--skip_flyenrichr" if config.get("nmf_annotate_skip_flyenrichr", False) else ""
-#     log:
-#         "logs/nmf/nmf_annotate_programs.log"
-#     threads:
-#         config.get("nmf_annotate_threads", 8)
-#     resources:
-#         slurm_partition = config.get("nmf_annotate_partition", "medium"),
-#         mem_mb          = config.get("nmf_annotate_mem",       32000),
-#         runtime      = hms_to_minutes(config.get("nmf_annotate_time",      "4:00:00"))
-#     shell:
-#         """
-#         exec > {log} 2>&1
-#         echo "Starting NMF program annotation"
+        python {params.script} \
+            --input {input.adata_with_programs} \
+            --output_dir {params.output_dir} \
+            --categorical_var {params.categorical_var}
 
-#         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-#         conda activate {SCANPY_ENV}
+        echo "NMF categorical variable analysis complete"
+        """
 
-#         python {params.script} \
-#             --input        {input.adata_with_programs} \
-#             --program_dir  {params.program_dir} \
-#             --output_dir   {params.output_dir} \
-#             --mapping      {input.mapping} \
-#             --titer_var    {params.titer_var} \
-#             --cc_s_var     {params.cc_s_var} \
-#             --cc_g2m_var   {params.cc_g2m_var} \
-#             --cc_phase_var {params.cc_phase_var} \
-#             --top_genes    {params.top_genes} \
-#             {params.skip_gsea} \
-#             {params.skip_fly}
+rule nmf_annotate_programs:
+    input:
+        adata_with_programs = "results/nmf_programs/adata_with_programs.h5ad",
+        nmf_done            = "results/nmf_programs/.done",
+        mapping             = config["transcripts_to_genes"]
+    output:
+        output  = "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
+    params:
+        script       = config.get("nmf_annotate_script"),
+        output_dir   = "results/nmf_annotate_programs",
+        program_dir  = "results/nmf_programs",
+        sample_name  = config.get("nmf_annotate_sample", "wolbachia_infection"),
+        titer_var    = config.get("continuous_var", "wolbachia_titer"),
+        cc_s_var     = config.get("cc_s_var",      "S_score"),
+        cc_g2m_var   = config.get("cc_g2m_var",    "G2M_score"),
+        cc_phase_var = config.get("cc_phase_var",  "phase"),
+        top_genes    = config.get("nmf_annotate_top_genes", 200),
+        skip_gsea    = "--skip_gsea" if config.get("nmf_annotate_skip_gsea", False) else "",
+        skip_fly     = "--skip_flyenrichr" if config.get("nmf_annotate_skip_flyenrichr", False) else ""
+    log:
+        "logs/nmf/nmf_annotate_programs.log"
+    threads:
+        config.get("nmf_annotate_threads", 8)
+    resources:
+        slurm_partition = config.get("nmf_annotate_partition", "medium"),
+        mem_mb          = config.get("nmf_annotate_mem",       32000),
+        runtime      = hms_to_minutes(config.get("nmf_annotate_time",      "4:00:00"))
+    shell:
+        """
+        exec > {log} 2>&1
+        echo "Starting NMF program annotation"
 
-#         echo "NMF program annotation complete"
-#         """
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+
+        python {params.script} \
+            --input        {input.adata_with_programs} \
+            --program_dir  {params.program_dir} \
+            --output_dir   {params.output_dir} \
+            --mapping      {input.mapping} \
+            --titer_var    {params.titer_var} \
+            --cc_s_var     {params.cc_s_var} \
+            --cc_g2m_var   {params.cc_g2m_var} \
+            --cc_phase_var {params.cc_phase_var} \
+            --top_genes    {params.top_genes} \
+            {params.skip_gsea} \
+            {params.skip_fly}
+
+        echo "NMF program annotation complete"
+        """
 
 ##################################################################
 # mei-P26 rescue analysis (pseudobulk by atlas cell type)
@@ -1197,8 +1233,11 @@ rule rescue_summary:
 #   09_wolbachia_followup.R   replicate / normalisation / pooled checks of
 #                             Wolbachia DE; --gff adds gene products
 #   10_clean_integrated.py    integrated_clean.h5ad = integrated.h5ad minus debris
+#   11_wolbachia_secretion.py secretion class + effector evidence per wMel gene
 # ---------------------------------------------------------------------------
 WMEL_GFF = config.get("wmel_gff", "")
+WMEL_FAA = config.get("wmel_proteins", "")        # optional, rule rescue_secretion
+WMEL_SIGNALP = config.get("wmel_signalp", "")     # optional, rule rescue_secretion
 
 rule rescue_followup_all:
     input:
@@ -1208,6 +1247,7 @@ rule rescue_followup_all:
         f"{RESCUE_DIR}/germline/rescue_null/rescue_null_summary.tsv",
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv",
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_followup_summary.tsv",
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_secretion_all.tsv",
         "results/integrated/integrated_clean.h5ad",
 
 # integrated.h5ad minus the debris cells flagged by 06. Point NMF / GSEA /
@@ -1368,4 +1408,43 @@ rule rescue_wolbachia_followup:
         {EDGER_ENV}/bin/Rscript {RESCUE_SCRIPTS}/09_wolbachia_followup.R \
             --pseudobulk_dir {params.indir} --outdir {params.outdir} \
             --min_cells {RESCUE_MINCELL} --min_wmel_umis {params.min_wmel} {params.gff}
+        """
+
+# Which wMel genes could act in host cells: secretion class + published/predicted
+# effector evidence + this dataset's expression and DE. The protein FASTA and the
+# signal-peptide calls are params, not inputs: when they are unset or missing the
+# rule still runs and secretion_class reads "unknown" for every locus.
+rule rescue_secretion:
+    input:
+        followup  = rules.rescue_wolbachia_followup.output[0],
+        germ_de   = rules.rescue_germline_de.output.wmel,
+        germ_meta = rules.rescue_germline.output.meta,
+        meta      = rules.rescue_pseudobulk.output.meta,
+    output:
+        all_loci  = f"{RESCUE_DIR}/wolbachia_followup/wolbachia_secretion_all.tsv",
+        shortlist = f"{RESCUE_DIR}/wolbachia_followup/wolbachia_secretion_shortlist.tsv",
+    params:
+        gtf      = WMEL_GFF,
+        de_dir   = RESCUE_DIR,
+        outdir   = f"{RESCUE_DIR}/wolbachia_followup",
+        proteins = f"--proteins {WMEL_FAA}" if WMEL_FAA and os.path.exists(WMEL_FAA) else "",
+        signalp  = f"--signalp {WMEL_SIGNALP}" if WMEL_SIGNALP and os.path.exists(WMEL_SIGNALP) else "",
+        min_aa   = config.get("rescue_secretion_min_aa", 400),
+        min_cpm  = config.get("rescue_secretion_min_cpm", 100),
+    log: "logs/rescue/secretion.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 16000, runtime = hms_to_minutes("0:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        if [ -z "{params.gtf}" ]; then
+            echo "ERROR: set wmel_gff in config.yaml (GTF or GFF3 with Wolbachia locus tags)"
+            exit 1
+        fi
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/11_wolbachia_secretion.py \\
+            --gtf {params.gtf} --de_dir {params.de_dir} --outdir {params.outdir} \\
+            --min_aa {params.min_aa} --min_cpm {params.min_cpm} \\
+            {params.proteins} {params.signalp}
         """

@@ -21,6 +21,10 @@ def parse_args():
     parser.add_argument('--organism', default='Fly', help='Organism for gene sets')
     parser.add_argument('--gene_id_type', default='flybase', help='Gene ID type')
     parser.add_argument('--flybase_annotation', default=None, help='FlyBase annotation')
+    parser.add_argument('--use_raw', action='store_true',
+                        help='Run on .raw (full-gene log1p) host genes instead of .X. '
+                             'Use for the atlas-projected object, whose .X holds only the '
+                             'wild-type atlas HVG panel')
     return parser.parse_args()
 
 def load_gene_mapping(flybase_path):
@@ -44,13 +48,22 @@ def main():
     print("\n1. Loading data...")
     adata = sc.read_h5ad(args.input)
     print(f"   {adata.n_obs} cells × {adata.n_vars} genes")
+    if args.use_raw:
+        if adata.raw is None:
+            raise ValueError("--use_raw set but the input has no .raw")
+        host = adata.raw.var_names.str.startswith("FB")
+        adata = sc.AnnData(X=adata.raw.X[:, host], obs=adata.obs.copy(),
+                           var=adata.raw.var.loc[host].copy(), obsm=dict(adata.obsm))
+        print(f"   Using .raw host genes: {adata.n_vars} genes")
     
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Prepare HVGs
     print("\n2. Preparing highly variable genes...")
     if 'highly_variable' not in adata.var.columns:
-        sc.pp.highly_variable_genes(adata, n_top_genes=args.n_top_genes, flavor='seurat_v3')
+        # X is log1p-normalised here (raw counts are not carried), so use the
+        # 'seurat' flavour; 'seurat_v3' expects counts and needs scikit-misc
+        sc.pp.highly_variable_genes(adata, n_top_genes=args.n_top_genes, flavor='seurat')
     
     adata_hvg = adata[:, adata.var.highly_variable].copy()
     print(f"   Using {adata_hvg.n_vars} HVGs")
