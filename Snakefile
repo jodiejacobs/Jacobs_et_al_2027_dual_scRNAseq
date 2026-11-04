@@ -1196,6 +1196,7 @@ rule rescue_summary:
 #                             interaction-supported rescue genes
 #   09_wolbachia_followup.R   replicate / normalisation / pooled checks of
 #                             Wolbachia DE; --gff adds gene products
+#   10_clean_integrated.py    integrated_clean.h5ad = integrated.h5ad minus debris
 # ---------------------------------------------------------------------------
 WMEL_GFF = config.get("wmel_gff", "")
 
@@ -1207,6 +1208,27 @@ rule rescue_followup_all:
         f"{RESCUE_DIR}/germline/rescue_null/rescue_null_summary.tsv",
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv",
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_followup_summary.tsv",
+        "results/integrated/integrated_clean.h5ad",
+
+# integrated.h5ad minus the debris cells flagged by 06. Point NMF / GSEA /
+# cluster_stats / summary_statistics / UMAP scripts at this file.
+rule rescue_integrated_clean:
+    input:
+        integrated = "results/integrated/integrated.h5ad",
+        exclude    = f"{RESCUE_DIR}/label_qc/debris_cells.tsv",
+    output:
+        "results/integrated/integrated_clean.h5ad",
+    log: "logs/rescue/integrated_clean.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/10_clean_integrated.py \
+            --integrated {input.integrated} --exclude_cells {input.exclude} --out {output}
+        """
 
 rule rescue_label_qc:
     input:

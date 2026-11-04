@@ -11,16 +11,18 @@ re-clusters the three problem labels on their own.
    early germline, somatic follicle, late follicle (vitelline/chorion),
    muscle, trachea and hemocyte gene sets. Each cell gets the top-scoring
    lineage, or 'ambiguous' if no score exceeds --min_score.
-2. Marker heatmap: mean log-CP10k per label x condition.
-3. Leiden subclusters within each problem label (all cells, not subsampled),
+2. Leiden subclusters within each problem label (all cells, not subsampled),
    with per-subcluster QC (host UMIs, genes, % mito), lineage mix, top markers
    and cell counts per sample. Per-sample counts matter: with 2 replicates a
    subcluster driven by one library is a library effect, not biology.
+   Debris subclusters are flagged here (see debris_cells.tsv below).
+3. Condition comparisons on NON-debris cells only: marker heatmap (mean
+   log-CP10k per label x condition) and lineage-by-label tables.
 
 Outputs (in --outdir):
-  lineage_by_label.tsv        label x lineage cell fractions
-  lineage_by_label_sample.tsv label x sample x lineage cell counts
-  marker_heatmap.pdf/.png     mean marker expression per label x condition
+  lineage_by_label.tsv        label x lineage cell fractions (debris removed)
+  lineage_by_label_sample.tsv label x sample x lineage cell counts (debris removed)
+  marker_heatmap.pdf/.png     mean marker expression per label x condition (debris removed)
   subclusters_<label>.tsv     per-subcluster QC, lineage mix, top markers
   subcluster_samples_<label>.tsv  cells per subcluster x sample
   subclusters_<label>.pdf     UMAP coloured by subcluster, lineage, sample, titer
@@ -29,9 +31,11 @@ Outputs (in --outdir):
                               genes < --debris_max_genes AND median % mito >
                               --debris_min_mito); 01_build_pseudobulk.py
                               --exclude_cells drops them
+  cell_counts_by_sample.tsv   labeled / debris / kept cells per sample (+ total)
+  cell_counts_by_sample_tissue.tsv  the same per sample x atlas label
 
 Usage:
-  python 06_label_qc.py --counts results/rescue/pseudobulk/counts_labeled.h5ad \
+  python 06_label_qc.py --counts results/rescue/pseudobulk_all/counts_labeled.h5ad \
       --annotation reference/fbgn_annotation_ID_fb_2025_04.tsv.gz \
       --outdir results/rescue/label_qc
 """
@@ -225,17 +229,6 @@ def main():
     a = load_host(args.counts, load_symbols(args.annotation))
     print(f"{a.n_obs:,} cells x {a.n_vars:,} host genes")
     score_cols = score_lineages(a, args.min_score, args.seed)
-    marker_heatmap(a, args.outdir)
-
-    frac = pd.crosstab(a.obs["tissue"], a.obs["lineage"], normalize="index").round(3)
-    frac.insert(0, "n_cells", a.obs["tissue"].value_counts())
-    frac.sort_values("n_cells", ascending=False).to_csv(
-        os.path.join(args.outdir, "lineage_by_label.tsv"), sep="\t")
-    print("\nLineage call by atlas label (row fractions):")
-    print(frac.sort_values("n_cells", ascending=False).to_string())
-    a.obs.groupby(["tissue", "sample", "lineage"], observed=True).size().rename("n_cells") \
-        .reset_index().to_csv(os.path.join(args.outdir, "lineage_by_label_sample.tsv"),
-                              sep="\t", index=False)
 
     out = a.obs[["sample", "condition", "tissue", "lineage"] + score_cols].copy()
     out["subcluster"] = ""
@@ -254,6 +247,37 @@ def main():
     print(f"\nDebris cells flagged: {len(deb):,}")
     print(pd.crosstab(deb["tissue"].astype(str) + ":" + deb["subcluster"].astype(str),
                       deb["sample"].astype(str)).to_string())
+
+    # cell counts after debris removal: per sample, and per sample x atlas label
+    o = out.assign(sample=out["sample"].astype(str), tissue=out["tissue"].astype(str))
+    by_sample = o.groupby("sample").agg(condition=("condition", "first"),
+                                        n_labeled=("debris", "size"),
+                                        n_debris=("debris", "sum"))
+    by_sample["n_kept"] = by_sample["n_labeled"] - by_sample["n_debris"]
+    by_sample["pct_debris"] = (100 * by_sample["n_debris"] / by_sample["n_labeled"]).round(2)
+    by_sample.loc["total"] = ["", by_sample["n_labeled"].sum(), by_sample["n_debris"].sum(),
+                              by_sample["n_kept"].sum(),
+                              round(100 * by_sample["n_debris"].sum() / by_sample["n_labeled"].sum(), 2)]
+    by_sample.to_csv(os.path.join(args.outdir, "cell_counts_by_sample.tsv"), sep="\t")
+    by_tissue = o.groupby(["tissue", "sample"]).agg(n_labeled=("debris", "size"),
+                                                    n_debris=("debris", "sum")).reset_index()
+    by_tissue["n_kept"] = by_tissue["n_labeled"] - by_tissue["n_debris"]
+    by_tissue.to_csv(os.path.join(args.outdir, "cell_counts_by_sample_tissue.tsv"), sep="\t", index=False)
+    print("\nCells per sample after debris removal:")
+    print(by_sample.to_string())
+
+    # condition comparisons use non-debris cells only
+    k = a[~out["debris"].to_numpy()]
+    marker_heatmap(k, args.outdir)
+    frac = pd.crosstab(k.obs["tissue"], k.obs["lineage"], normalize="index").round(3)
+    frac.insert(0, "n_cells", k.obs["tissue"].value_counts())
+    frac.sort_values("n_cells", ascending=False).to_csv(
+        os.path.join(args.outdir, "lineage_by_label.tsv"), sep="\t")
+    print("\nLineage call by atlas label, debris removed (row fractions):")
+    print(frac.sort_values("n_cells", ascending=False).to_string())
+    k.obs.groupby(["tissue", "sample", "lineage"], observed=True).size().rename("n_cells") \
+        .reset_index().to_csv(os.path.join(args.outdir, "lineage_by_label_sample.tsv"),
+                              sep="\t", index=False)
 
 
 if __name__ == "__main__":

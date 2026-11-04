@@ -14,6 +14,7 @@ Pseudobulk analysis by atlas cell type (`cell_type_annotation_broad` by default)
 | Marker-defined germline: abundance, subclusters, germline pseudobulks | `07_germline.py` (+ `03`, `08` on its pseudobulks) | `germline/germline_composition_tests.tsv`, `germline/de/`, `germline/rescue_null/` |
 | Is rescue larger than selection bias? Interaction-supported rescue genes | `08_rescue_null.R` | `rescue_null/rescue_null_summary.tsv`, `rescue_supported_genes.tsv` |
 | Wolbachia DE robustness (replicates, normalisation, pooled 2 vs 2) | `09_wolbachia_followup.R` | `wolbachia_followup/wolbachia_candidates.tsv` |
+| Integrated object without debris, for NMF / GSEA / UMAP / summary scripts | `10_clean_integrated.py` | `results/integrated/integrated_clean.h5ad` |
 
 ## Run
 
@@ -48,6 +49,15 @@ On the Nov 2026 data this removes artefact c1 and tracheal c1/c2 (46,400 cells;
 30,460 from Mei-P26_wMel-1). The filter works on subclusters, not single cells:
 a per-cell cutoff (e.g. < 200 genes and >= 3% mito) catches the same debris but
 also ~50% of every Mei-P26 sample and ~5% of OreR, which would confound genotype.
+
+Every analysis that compares conditions runs without the debris: `02`-`05`
+and `07`-`09` read the filtered pseudobulks, `06` builds its marker heatmap and
+lineage tables from non-debris cells (its subcluster tables keep the debris,
+since that is where it is flagged), and `10` writes
+`results/integrated/integrated_clean.h5ad` for scripts that read the integrated
+object. `integrated.h5ad` itself and the `integrate` rule's diagnostic figures
+still contain the debris; use the rescue outputs or `integrated_clean.h5ad`
+instead. Per-sample counts are in `label_qc/cell_counts_by_sample.tsv`.
 
 ## Interpretation notes
 
