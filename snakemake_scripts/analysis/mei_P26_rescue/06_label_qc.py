@@ -252,7 +252,8 @@ def main():
     pd.Series(deb.index, name="obs_name").to_csv(
         os.path.join(args.outdir, "debris_cells.tsv"), sep="\t", index=False)
     print(f"\nDebris cells flagged: {len(deb):,}")
-    print(pd.crosstab(deb["tissue"] + ":" + deb["subcluster"], deb["sample"]).to_string())
+    print(pd.crosstab(deb["tissue"].astype(str) + ":" + deb["subcluster"].astype(str),
+                      deb["sample"].astype(str)).to_string())
 
 
 if __name__ == "__main__":
