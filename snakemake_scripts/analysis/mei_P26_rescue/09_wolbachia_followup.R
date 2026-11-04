@@ -16,8 +16,8 @@
 # C. Pooled sample-level test: sum wMel counts over all tissues per infected
 #    sample (4 libraries, 2 vs 2). Each gene gets one test on independent
 #    samples, unlike the per-tissue tests, which reuse the same 4 samples.
-# D. Optional --gff (RefSeq GFF3 for the wMel assembly): adds product and
-#    old_locus_tag for each WD_* locus tag.
+# D. Optional --gff: RefSeq GFF3 or GTF (e.g. the combined fly + wMel GTF used
+#    for the kallisto index); adds gene, product and old_locus_tag per WD_* tag.
 #
 # Usage:
 #   Rscript 09_wolbachia_followup.R --pseudobulk_dir results/rescue/pseudobulk \
@@ -116,20 +116,31 @@ pt$FDR_excl_dominant <- ps$tt$FDR[match(pt$gene_id, ps$tt$gene_id)]
 pt$dominant <- pt$gene_id %in% dominant
 tab <- rbind(tab, data.frame(tissue = "pooled_all_tissues", pt))
 
-# D. annotation
+# D. annotation: RefSeq GFF3 (key=value;) or GTF (key "value";), plain or .gz.
+# Only lines with a Wolbachia locus tag are read, so the combined fly + wMel
+# annotation used to build the kallisto index works directly.
 if (!is.na(opt$gff) && file.exists(opt$gff)) {
-  g <- readLines(if (grepl("\\.gz$", opt$gff)) gzfile(opt$gff) else opt$gff)
+  cat_cmd <- if (grepl("\\.gz$", opt$gff)) "gzip -dc" else "cat"
+  g <- readLines(pipe(sprintf("%s %s | grep -E 'locus_tag[ =]\"?(WD|GQX67)'", cat_cmd, shQuote(opt$gff))))
   g <- strsplit(g[!startsWith(g, "#")], "\t")
   g <- do.call(rbind, lapply(g[lengths(g) == 9], function(x) c(x[3], x[9])))
-  attr <- function(a, key) ifelse(grepl(paste0(key, "="), a),
-                                  sub(paste0(".*", key, "=([^;]*).*"), "\\1", a), NA)
+  attr <- function(a, key) {
+    gtf <- sprintf('(^|; *)%s "([^"]*)"', key); gff <- sprintf("(^|;)%s=([^;]*)", key)
+    out <- rep(NA_character_, length(a))
+    i <- grepl(gtf, a); out[i] <- sub(sprintf('.*%s.*', gtf), "\\2", a[i])
+    j <- !i & grepl(gff, a); out[j] <- sub(sprintf('.*%s.*', gff), "\\2", a[j])
+    out
+  }
   ann <- data.frame(type = g[, 1], locus_tag = attr(g[, 2], "locus_tag"),
                     old_locus_tag = attr(g[, 2], "old_locus_tag"),
-                    product = utils::URLdecode(as.character(attr(g[, 2], "product"))))
-  gene <- ann[ann$type == "gene" & !is.na(ann$locus_tag), c("locus_tag", "old_locus_tag")]
+                    gene = attr(g[, 2], "gene"),
+                    product = attr(g[, 2], "product"))
+  ann$product <- vapply(ann$product, function(x) if (is.na(x)) NA_character_ else utils::URLdecode(x), "")
+  gene <- ann[ann$type == "gene" & !is.na(ann$locus_tag), c("locus_tag", "old_locus_tag", "gene")]
   prod <- ann[!is.na(ann$product) & !is.na(ann$locus_tag), c("locus_tag", "product")]
   prod <- prod[!duplicated(prod$locus_tag), ]
-  ann <- merge(gene[!duplicated(gene$locus_tag), ], prod, by = "locus_tag", all.x = TRUE)
+  ann <- merge(gene[!duplicated(gene$locus_tag), ], prod, by = "locus_tag", all = TRUE)
+  cat("Annotation:", nrow(ann), "Wolbachia loci,", sum(!is.na(ann$product)), "with a product\n")
   tab <- merge(tab, ann, by.x = "gene_id", by.y = "locus_tag", all.x = TRUE)
 }
 
@@ -160,7 +171,7 @@ pool <- tab[tab$tissue == "pooled_all_tissues", c("gene_id", "logFC", "FDR", "re
                                                   "FDR_excl_dominant")]
 names(pool)[-1] <- paste0("pooled_", names(pool)[-1])
 rec <- merge(rec, pool, by = "gene_id", all = TRUE)
-extra <- intersect(c("old_locus_tag", "product"), names(tab))
+extra <- intersect(c("old_locus_tag", "gene", "product"), names(tab))
 if (length(extra)) rec <- merge(rec, unique(tab[, c("gene_id", extra)]), by = "gene_id", all.x = TRUE)
 rec <- rec[order(rec$pooled_FDR), ]
 write.table(rec, file.path(opt$outdir, "wolbachia_candidates.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)

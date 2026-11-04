@@ -81,9 +81,9 @@ def parse_args():
                    help="min top lineage score to call a lineage (else 'ambiguous')")
     p.add_argument("--resolution", type=float, default=0.4)
     p.add_argument("--n_markers", type=int, default=12)
-    p.add_argument("--debris_max_genes", type=float, default=120,
+    p.add_argument("--debris_max_genes", type=float, default=150,
                    help="subcluster is debris if its median genes/cell is below this ...")
-    p.add_argument("--debris_min_mito", type=float, default=4,
+    p.add_argument("--debris_min_mito", type=float, default=4.5,
                    help="... and its median %% mito is above this")
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()

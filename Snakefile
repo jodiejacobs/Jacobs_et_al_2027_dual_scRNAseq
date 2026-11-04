@@ -1037,8 +1037,8 @@ rule rescue_all:
         f"{RESCUE_DIR}/summary/rescue_genes.tsv",
 
 # Debris removal (06_label_qc.py): rescue_pseudobulk_all builds the unfiltered
-# labeled counts, rescue_label_qc flags debris subclusters (median genes < 120
-# and median % mito > 4), and rescue_pseudobulk rebuilds everything without
+# labeled counts, rescue_label_qc flags debris subclusters (median genes < 150
+# and median % mito > 4.5), and rescue_pseudobulk rebuilds everything without
 # those cells. Set rescue_drop_debris: false to skip the filter.
 RESCUE_DEBRIS = f"{RESCUE_DIR}/label_qc/debris_cells.tsv" if config.get("rescue_drop_debris", True) else ""
 

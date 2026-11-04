@@ -42,11 +42,15 @@ snakemake rescue_all rescue_followup_all --executor slurm --default-resources sl
 
 `rescue_pseudobulk_all` runs `01` on every labeled cell; `06` subclusters the
 artefact, unannotated and adult tracheal labels and flags a subcluster as debris
-when its median cell has < 120 genes and > 4% mito (`--debris_max_genes`,
+when its median cell has < 150 genes and > 4.5% mito (`--debris_max_genes`,
 `--debris_min_mito`); `rescue_pseudobulk` then reruns `01 --exclude_cells
 label_qc/debris_cells.tsv`, and every downstream rule uses that output.
-On the Nov 2026 data this removes artefact c1 and tracheal c1/c2 (46,400 cells;
-30,460 from Mei-P26_wMel-1). The filter works on subclusters, not single cells:
+Thresholds were set from two independent clusterings of the Nov 2026 data:
+the junk clusters have median 77-124 genes and 4.9-7.2% mito (mito, rRNA and
+ambient yolk/chorion markers, >90% Mei-P26), while the nearest real clusters
+are ovarian sheath muscle (124 genes, 4.1% mito) and tracheal c8 (176 genes).
+Leiden output differs slightly between environments, so check the `debris`
+column of `label_qc/subclusters_*.tsv` after each run. The filter works on subclusters, not single cells:
 a per-cell cutoff (e.g. < 200 genes and >= 3% mito) catches the same debris but
 also ~50% of every Mei-P26 sample and ~5% of OreR, which would confound genotype.
 
