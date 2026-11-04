@@ -870,7 +870,7 @@ rule cluster_gsea:
         exec > {log} 2>&1
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.h5ad} --output_dir {params.output_dir} \
             --flybase_annotation {input.annotation} \
             --cluster_column {params.cluster_column} --threads {threads}
@@ -908,7 +908,7 @@ rule nmf_programs:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.h5ad} \
             --output_dir {params.output_dir} \
             --n_programs {params.n_programs} \
@@ -950,7 +950,7 @@ rule nmf_continuous_var:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.adata_with_programs} \
             --output_dir {params.output_dir} \
             --continuous_var {params.continuous_var} \
@@ -985,7 +985,7 @@ rule nmf_categorical_var:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input {input.adata_with_programs} \
             --output_dir {params.output_dir} \
             --categorical_var {params.categorical_var}
@@ -1028,7 +1028,7 @@ rule nmf_annotate_programs:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
 
-        python {params.script} \
+        {SCANPY_ENV}/bin/python {params.script} \
             --input        {input.adata_with_programs} \
             --program_dir  {params.program_dir} \
             --output_dir   {params.output_dir} \
