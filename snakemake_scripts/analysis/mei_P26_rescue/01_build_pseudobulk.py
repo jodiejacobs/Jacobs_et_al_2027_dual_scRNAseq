@@ -46,6 +46,9 @@ def parse_args():
     p.add_argument("--min_confidence", type=float, default=0.5,
                    help="drop cells whose atlas label KNN confidence is below this "
                         "(0 keeps everything)")
+    p.add_argument("--exclude_cells", default=None,
+                   help="TSV with an obs_name column (e.g. label_qc/debris_cells.tsv "
+                        "from 06_label_qc.py); these cells are dropped before pseudobulking")
     p.add_argument("--drop_qc_outliers", action="store_true",
                    help="also drop cells flagged qc_outlier during integration")
     return p.parse_args()
@@ -115,6 +118,11 @@ def main():
 
     labels = load_labels(args.integrated, args.label_col,
                          args.min_confidence, args.drop_qc_outliers)
+    if args.exclude_cells:
+        drop = set(pd.read_csv(args.exclude_cells, sep="\t")["obs_name"].astype(str))
+        n0 = len(labels)
+        labels = labels[~labels.index.isin(drop)]
+        print(f"Excluded {n0 - len(labels):,} cells listed in {args.exclude_cells}")
     counts = load_raw_counts(args.filtered, set(labels.index))
     missing = labels.index.difference(counts.obs_names)
     if len(missing):
