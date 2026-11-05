@@ -156,7 +156,7 @@ rescue_gsea_permutations: 2000
 # per-locus GC from the annotation coordinates. Leave "" and the GC term is
 # dropped; length, genome position and strand are still tested. Point this at
 # the wMel FASTA the kallisto index was built from if you want the GC check.
-wmel_genome: ""
+wmel_genome: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/Drosophila_melanogaster_wMel_combined_16S.fasta"
 rescue_detection_min_cell_wmel: 5     # wMel UMIs a cell needs to count toward detection
 
 # rule rescue_titer_programs (13)
