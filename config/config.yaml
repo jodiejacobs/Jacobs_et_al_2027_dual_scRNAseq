@@ -148,3 +148,24 @@ wmel_kegg_org: "wol"            # KEGG organism code for wMel; "" to skip KEGG
 rescue_gsea_tissue: "pooled_all_tissues"   # which Wolbachia DE contrast to rank by
 rescue_gsea_min_set: 5          # min tested genes per set
 rescue_gsea_permutations: 2000
+
+# ---------------------------------------------------------------------------
+# Method-validation rules 13-16 (snakemake rescue_method_all). All keys optional.
+# ---------------------------------------------------------------------------
+# rule rescue_detection_bias (14): Wolbachia genome FASTA, used only to compute
+# per-locus GC from the annotation coordinates. Leave "" and the GC term is
+# dropped; length, genome position and strand are still tested. Point this at
+# the wMel FASTA the kallisto index was built from if you want the GC check.
+wmel_genome: ""
+rescue_detection_min_cell_wmel: 5     # wMel UMIs a cell needs to count toward detection
+
+# rule rescue_titer_programs (13)
+rescue_titer_prog_min_cells: 50       # cells per sample x cell type to be correlated
+
+# rule rescue_atlas_fidelity (15)
+rescue_atlas_reference_group: "OreR_uninf"  # condition compared to the atlas composition
+rescue_atlas_profile_genes: 3000      # shared atlas-variable genes for the profile correlation
+rescue_atlas_max_cells: 0             # subsample the atlas (0 = all cells)
+
+# rule rescue_uninfected_floor (16)
+rescue_floor_quantile: 0.99           # quantile of uninfected per-cell titer used as the floor

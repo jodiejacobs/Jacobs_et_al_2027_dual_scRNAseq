@@ -1,0 +1,150 @@
+# Configuration file for the Snakemake pipeline
+
+# Path to the CSV file containing sample information
+samples_file: "config/samples.csv"
+
+# Path to conda environment
+scanpy_env: '/private/groups/russelllab/jodie/miniforge3/envs/scanpy'
+cyclum_env: '/private/groups/russelllab/jodie/miniforge3/envs/cyclum'
+
+# Alignment paths
+fastq_dir: "/private/groups/russelllab/jodie/sequencing_data/scRNAseq/PIP-seq_cells/Jacobs_10524_241203B9" # Add the path to the directory containing the FASTQ files for pipseq
+kallisto_index: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/transcripts.idx" 
+# 10x GEM-X 5' v3 barcode on-list (uncompressed). Copy from Cell Ranger:
+# cellranger-x.y.z/lib/python/cellranger/barcodes/3M-5pgex-jan-2023.txt.gz, then gunzip
+whitelist_10x: "reference/barcodes/3M-5pgex-jan-2023.txt"
+
+# Initial scripts
+filter_script: "snakemake_scripts/filtering/kallisto_bustools_qcfilter_adata_no_pybiomart.py" # Changes to remove biomart dependancy on 3/25/26
+cell_cycle_script: "snakemake_scripts/analysis/cyclum_cell_cycle.py"
+transcripts_to_genes: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/transcripts_to_genes.txt"
+
+# Compute resources for filter
+filter_threads: 8
+filter_cpus: 16
+filter_mem: 256000  # MB
+filter_time: "2:00:00"  # HH:MM:SS
+filter_partition: "medium"  # SLURM partition for filter jobs
+
+# Compute resources for map_10x (kb count pseudoalignment)
+pseudoalign_threads: 128
+pseudoalign_partition: "medium"
+pseudoalign_mem: 1000000  # MB
+pseudoalign_time: "12:00:00"  # HH:MM:SS
+
+# Compute resources for cell cycle
+cell_cycle_threads: 64           # Instead of 128
+cell_cycle_mem: 1000000           # Instead of 32000  
+cell_cycle_time: "12:00:00"     # More time
+cell_cycle_partition: "medium"  
+
+# Extract 16S reads
+target_gene: "GQX67_05945"
+rRNA_regions: "reference/rRNA/rRNA_regions.bed"
+ref_fasta: "reference/rRNA/rRNA_reference_Dmel_wMel.fasta"
+ref_bed: "reference/rRNA/Dmel_wMel_rRNA.gene.bed"
+plot_coverage_script: "snakemake_scripts/rRNA_analysis/plot_coverage.py"
+plot_blast_script: "snakemake_scripts/rRNA_analysis/plot_blast_pie_charts.py"
+min_blast_reads: 100
+blast_db: "blast_db/16S_ribosomal_RNA_plus_wolbachia"
+
+integrate_script: "scripts/analysis/integrate.py"  # old BBKNN joint-clustering path, kept for revert/comparison
+integrate_atlas_script: "snakemake_scripts/analysis/integrate_via_atlas_projection.py"  # now the default (see rule integrate)
+integrate_threads: 16
+integrate_partition: "medium"
+integrate_mem: 128000
+integrate_time: "4:00:00"
+
+# Reference atlas for atlas-projected integration (rule integrate).
+# Fly Cell Atlas / BioHub ovary object -- see integrate_via_atlas_projection.py.
+# Rebuilt 2026-10-27 from UCSC Cell Browser (fly-cell-atlas/ovary) via
+# snakemake_scripts/analysis/build_atlas_from_ucsc.py; original BioHub file:
+ovary_atlas: "ovary_atlas/atlas/h5ad_unprocessed/s_fca_biohub_ovary_10x.h5ad"
+atlas_k: 30
+atlas_n_pcs: 30
+# obs column(s) in the atlas to transfer. Both requested: 'annotation'
+# (fine-grained cell type) and 'annotation_broad' (coarse) -- transferring
+# both costs almost nothing extra (same projection, one more KNN
+# confidence pass per column), so no need to commit to one resolution now.
+atlas_label_cols: [annotation, annotation_broad]
+atlas_subsample_ref: null  # set an int for a faster first pass on a subsampled atlas
+
+cellcycle_threads: 4
+cellcycle_partition: "medium"
+cellcycle_mem: 32000
+cellcycle_time: "2:00:00"
+
+# Gene program and pathway analysis settings
+organism: "Fly"
+gene_id_type: "flybase"  # Options: "flybase", "symbol", "ensembl"
+flybase_annotation: "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz"
+
+# NMF settings
+n_programs: 15
+n_top_genes: 2000
+
+# Variable for analysis (None = auto-detect)
+continuous_var: "wolbachia_titer"  # or None
+categorical_var: "condition"  # genotype_infection; "treatment" is not in the integrated object
+
+# GSEA settings
+gene_set_libraries:
+  - "GO_Biological_Process_2018"
+  - "GO_Cellular_Component_2018"
+  - "GO_Molecular_Function_2018"
+  - "KEGG_2019"
+
+# NMF scripts (rules nmf_* in the Snakefile; run with: snakemake nmf_all)
+nmf_annotate_script:    "snakemake_scripts/analysis/annotate_nmf_programs.py"
+nmf_continuous_script:  "snakemake_scripts/analysis/nmf_continuous_var.py"
+nmf_categorical_script: "snakemake_scripts/analysis/nmf_categorical_var.py"
+nmf_script: "snakemake_scripts/analysis/nmf_programs.py"
+gsea_script: "snakemake_scripts/analysis/cluster_gsea.py"
+gsea_cluster_column: "cell_type_annotation"   # obs column cluster_gsea compares (one vs rest)
+
+# nmf_threads: 8
+# nmf_mem: 64000
+# nmf_partition: "medium"
+# nmf_time: "4:00:00"
+
+# nmf_continuous_threads: 4
+# nmf_continuous_mem: 32000
+# nmf_continuous_partition: "medium"
+# nmf_continuous_time: "2:00:00"
+
+# nmf_categorical_threads: 4
+# nmf_categorical_mem: 32000
+# nmf_categorical_partition: "medium"
+# nmf_categorical_time: "2:00:00"
+
+# nmf_annotate_sample:       "wolbachia_infection"   # prefix for output file names
+# nmf_annotate_top_genes:    200                     # top N genes per program for enrichment
+# nmf_annotate_skip_gsea:    false                   # set true to skip local preranked GSEA
+# nmf_annotate_skip_flyenrichr: false                # set true if no internet access on nodes
+
+# nmf_annotate_threads:   8
+# nmf_annotate_partition: "medium"
+# nmf_annotate_mem:       32000
+# nmf_annotate_time:      "4:00:00"
+
+# mei-P26 rescue analysis (rescue_* rules at the end of the Snakefile); all keys optional
+edger_env: "/private/groups/russelllab/jodie/miniforge3/envs/edger"  # R + bioconductor-edger
+rescue_label_col: "cell_type_annotation"   # or "cell_type_annotation_broad" (bulk)
+rescue_min_confidence: 0.5     # atlas label KNN confidence
+rescue_min_cells: 20           # per sample x tissue pseudobulk
+rescue_min_wmel_umis: 2000     # per pseudobulk, Wolbachia DE only
+rescue_block_replicate: false  # add replicate to host design (uses 1 of 4 residual df)
+rescue_drop_qc_outliers: false
+wmel_gff: "reference/KB_Drosophila_melanogaster_wMel_combined_16S/Drosophila_melanogaster_wMel_combined_16S.gtf"  # wMel gene products for 09 (GTF or GFF3; only Wolbachia lines are read)
+# Optional inputs for rule rescue_secretion (11). Missing files are skipped, and
+# secretion_class then reads "unknown"; everything else still runs.
+wmel_proteins: "reference/wMel_proteins/wmel_proteins.faa"   # RefSeq wMel proteome (GCF_000008025.1)
+wmel_signalp: "reference/wMel_proteins/wmel_deepsig.gff"     # signal peptides: DeepSig GFF or TSV of protein_id + Y/N
+rescue_secretion_min_aa: 400    # length floor for the "uncharacterised" candidate tier
+rescue_secretion_min_cpm: 100   # germline CPM floor for the shortlist
+# rule rescue_gsea (12): gene-set enrichment on the Wolbachia DE ranking
+wmel_kegg_dir: "reference/wMel_proteins"   # cached kegg_links.tsv + kegg_names.tsv; "" to fetch over the network
+wmel_kegg_org: "wol"            # KEGG organism code for wMel; "" to skip KEGG
+rescue_gsea_tissue: "pooled_all_tissues"   # which Wolbachia DE contrast to rank by
+rescue_gsea_min_set: 5          # min tested genes per set
+rescue_gsea_permutations: 2000

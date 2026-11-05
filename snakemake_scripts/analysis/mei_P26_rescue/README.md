@@ -126,3 +126,83 @@ elements). That is a statement about the annotation more than the biology: only
 housekeeping rather than host interaction, so 271 of 273 hypothetical proteins
 and all of CifA, TomO and WalE1 carry no GO term at all. Treat the gene-level
 results as the stronger read, and rerun this if the DE gains power.
+
+## Method validation without a comparison run (13-16)
+
+There is no matched 3' / standard-chemistry run on this tissue and no budget for
+more data, so the DUOS-seq method claim cannot be a sensitivity comparison. It
+is instead: pseudorandom priming recovers a Wolbachia transcriptome that
+standard chemistry does not recover at all, in cells whose host state is typed
+at the same time. These four rules supply the internal controls that claim
+needs. Run them together with `snakemake rescue_method_all`.
+
+| rule | script | what it answers |
+| --- | --- | --- |
+| `rescue_uninfected_floor` | `16_uninfected_floor.py` | specificity: what wMel signal looks like where there is none |
+| `rescue_detection_bias` | `14_wmel_detection_bias.py` | breadth: is the recovered transcriptome a biased slice of the genome |
+| `rescue_atlas_fidelity` | `15_atlas_fidelity.py` | host fidelity: does the host side match published ovary scRNA-seq |
+| `rescue_titer_programs` | `13_titer_vs_programs.py` | the dual-specific analysis: does a cell's titer relate to its host program usage |
+
+### 16: the uninfected floor
+
+The uninfected OreR and Mei-P26 libraries were prepared and sequenced in the
+same lanes, so every wMel read in them is ambient RNA or index hopping. That
+makes them the method's negative control and the strongest validation available
+here. Reports the per-cell titer floor (pooled and per cell type), the AUROC of
+infected against uninfected per-cell titer *within* cell type, whether the
+uninfected signal scales with droplet depth (the ambient signature), and the
+wMel gene composition of the ambient signal against the infected signal.
+
+Read the AUROC column first. A cell type where titer barely separates infection
+status cannot carry a per-cell titer claim, whatever the pseudobulk shows.
+
+### 14: detection bias
+
+Detection tracks expression, so the test is conditional: for every wMel locus,
+detection rate across infected cells against length, GC and genome position,
+*given* log10 CPM. A null is the result in the method's favour, and the
+coefficients bound the bias the data could have hidden. Also writes the breadth
+table (loci detected at a series of per-cell thresholds) and a rarefaction curve
+over cells, both for Figure 1.
+
+GC needs `wmel_genome` in config, pointing at the Wolbachia FASTA the kallisto
+index was built from; without it the GC term is dropped and the rest still runs.
+
+### 15: atlas fidelity
+
+Composition and per-cell-type expression profiles against the Fly Cell Atlas
+ovary object the labels were projected from, over shared atlas-variable genes
+after symbol to FBgn harmonisation (reused from
+`integrate_via_atlas_projection.py`, which is why this script expects to stay in
+this directory).
+
+The labels came from this atlas, so the comparison is not independent and the
+methods section has to say so. The informative statistic is `diagonal_is_best`:
+whether each query cell type correlates best with *its own* atlas cell type.
+Projection constrains neighbourhoods in PCA space, not per-gene expression, so a
+high mean correlation with an off-diagonal argmax is a real warning that labels
+went onto the wrong neighbours, which no proportion table would show.
+
+Composition is compared for `rescue_atlas_reference_group` (default
+`OreR_uninf`) because wild-type uninfected ovaries are the only group expected
+to compose like a published wild-type ovary. Mutant and infected groups are
+reported for context and are meant to differ.
+
+### 13: titer against host programs
+
+The analysis separate host and symbiont experiments cannot do. Per-cell titer
+against host NMF program usage, asked within cell type and sample so composition
+cannot produce it, with three confounds controlled:
+
+- **depth**, by partialling rank(log10 n_counts) out of both inside each group,
+  so the reported value is a partial Spearman
+- **ambient**, by computing the same statistic on the uninfected samples, where
+  every wMel read is ambient; that is the null, not zero
+- **n**, by averaging group correlations across cell types within sample, so the
+  test is 4 infected samples against 4 uninfected ones
+
+With 2 replicates per genotype nothing better is available, and a cell-level
+p-value here would be a measure of cell count. If this comes back null, report
+it as a bounded negative with the effect sizes and the sample count, not as
+evidence of no relationship: it is the paper's unique capability, and a stated
+negative on it is more credible than silence.

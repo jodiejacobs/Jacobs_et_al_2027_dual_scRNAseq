@@ -1235,6 +1235,10 @@ rule rescue_summary:
 #   10_clean_integrated.py    integrated_clean.h5ad = integrated.h5ad minus debris
 #   11_wolbachia_secretion.py secretion class + effector evidence per wMel gene
 #   12_wolbachia_gsea.py      GO / KEGG / product-category enrichment on wMel DE
+#   13_titer_vs_programs.py   per-cell titer vs host NMF program usage
+#   14_wmel_detection_bias.py wMel detection vs sequence features (bias check)
+#   15_atlas_fidelity.py      host composition / profiles vs the projection atlas
+#   16_uninfected_floor.py    ambient floor from the uninfected libraries
 # ---------------------------------------------------------------------------
 WMEL_GFF = config.get("wmel_gff", "")
 WMEL_FAA = config.get("wmel_proteins", "")        # optional, rule rescue_secretion
@@ -1492,4 +1496,156 @@ rule rescue_gsea:
             --outdir {params.outdir} --tissue {params.tissue} \\
             --kegg_org {params.kegg_org} --min_set {params.min_set} \\
             --permutations {params.perms} {params.kegg_dir}
+        """
+
+# ---------------------------------------------------------------------------
+# Method-validation rules (13-16). These exist because there is no matched
+# standard-chemistry run to benchmark against, so the DUOS-seq method claim is
+# made from internal controls: the uninfected libraries as a negative control,
+# the genome-wide detection pattern as a bias check, the reference atlas as a
+# host-fidelity check, and the per-cell titer/host-program relationship as the
+# analysis only dual single-cell data can do.
+#
+#   13_titer_vs_programs.py    per-cell titer vs host NMF program usage, within
+#                              cell type, tested against the ambient null
+#   14_wmel_detection_bias.py  detection vs length / GC / genome position,
+#                              conditional on expression; breadth + rarefaction
+#   15_atlas_fidelity.py       composition and per-cell-type expression
+#                              profiles against the projection atlas
+#   16_uninfected_floor.py     ambient floor, per-cell separation, ambient
+#                              gene profile
+#
+# Run all four with:  snakemake rescue_method_all
+# ---------------------------------------------------------------------------
+WMEL_GENOME = config.get("wmel_genome", "")       # optional, rule rescue_detection_bias
+ATLAS_LABEL = RESCUE_LABEL.replace("cell_type_", "")
+
+rule rescue_method_all:
+    input:
+        f"{RESCUE_DIR}/titer_programs/titer_program_tests.tsv",
+        f"{RESCUE_DIR}/detection_bias/wmel_feature_tests.tsv",
+        f"{RESCUE_DIR}/atlas_fidelity/atlas_profile_correlations.tsv",
+        f"{RESCUE_DIR}/uninfected_floor/titer_separation.tsv",
+
+# The per-cell analysis that separate host and symbiont experiments cannot do:
+# does a cell carrying more wMel use different host programs? Asked within
+# cell type and sample, with depth partialled out and the uninfected samples
+# as the ambient null. The unit of replication is the sample, so this is a
+# 4-vs-4 test and underpowered by construction; report effect sizes.
+rule rescue_titer_programs:
+    input:
+        programs = rules.nmf_programs.output.adata_with_programs,
+    output:
+        tests = f"{RESCUE_DIR}/titer_programs/titer_program_tests.tsv",
+        cors  = f"{RESCUE_DIR}/titer_programs/titer_program_correlations.tsv",
+    params:
+        outdir    = f"{RESCUE_DIR}/titer_programs",
+        min_cells = config.get("rescue_titer_prog_min_cells", 50),
+    log: "logs/rescue/titer_programs.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/13_titer_vs_programs.py \\
+            --programs {input.programs} --outdir {params.outdir} \\
+            --label_col {RESCUE_LABEL} --min_cells {params.min_cells}
+        """
+
+# Breadth control for Figure 1: detection across the wMel genome, and whether
+# length, GC or position predicts it once expression is accounted for. A null
+# is the result in the method's favour. GC needs wmel_genome in config; without
+# it the GC term is dropped and everything else still runs.
+rule rescue_detection_bias:
+    input:
+        counts = rules.rescue_pseudobulk_all.output.counts,
+    output:
+        tests  = f"{RESCUE_DIR}/detection_bias/wmel_feature_tests.tsv",
+        model  = f"{RESCUE_DIR}/detection_bias/wmel_detection_model.tsv",
+        genes  = f"{RESCUE_DIR}/detection_bias/wmel_gene_detection.tsv.gz",
+    params:
+        outdir  = f"{RESCUE_DIR}/detection_bias",
+        gff     = WMEL_GFF,
+        fasta   = f"--fasta {WMEL_GENOME}" if WMEL_GENOME and os.path.exists(WMEL_GENOME) else "",
+        min_umi = config.get("rescue_detection_min_cell_wmel", 5),
+    log: "logs/rescue/detection_bias.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        if [ -z "{params.gff}" ]; then
+            echo "ERROR: set wmel_gff in config.yaml (GTF or GFF3 with locus_tag and coordinates)"
+            exit 1
+        fi
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/14_wmel_detection_bias.py \\
+            --counts {input.counts} --gff {params.gff} --outdir {params.outdir} \\
+            --min_cell_wmel {params.min_umi} {params.fasta}
+        """
+
+# Host-fidelity control: composition and per-cell-type expression against the
+# atlas the labels were projected from. Labels came from this atlas, so the
+# test is whether transcriptomes agree, not whether labels were assigned
+# independently -- the informative statistic is whether each query cell type
+# correlates best with its own atlas type.
+rule rescue_atlas_fidelity:
+    input:
+        query = "results/integrated/integrated_clean.h5ad",
+        atlas = config["ovary_atlas"],
+    output:
+        cors  = f"{RESCUE_DIR}/atlas_fidelity/atlas_profile_correlations.tsv",
+        props = f"{RESCUE_DIR}/atlas_fidelity/atlas_proportions.tsv",
+    params:
+        outdir     = f"{RESCUE_DIR}/atlas_fidelity",
+        flybase    = config.get("flybase_annotation",
+                                "reference/fbgn_annotation_ID_fb_2025_04.tsv.gz"),
+        atlas_col  = ATLAS_LABEL,
+        ref_group  = config.get("rescue_atlas_reference_group", "OreR_uninf"),
+        n_genes    = config.get("rescue_atlas_profile_genes", 3000),
+        max_cells  = config.get("rescue_atlas_max_cells", 0),
+    log: "logs/rescue/atlas_fidelity.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 256000, runtime = hms_to_minutes("2:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/15_atlas_fidelity.py \\
+            --query {input.query} --atlas {input.atlas} --outdir {params.outdir} \\
+            --flybase_annotation {params.flybase} \\
+            --label_col {RESCUE_LABEL} --atlas_label_col {params.atlas_col} \\
+            --reference_group {params.ref_group} --n_genes {params.n_genes} \\
+            --max_atlas_cells {params.max_cells}
+        """
+
+# The specificity control, and the strongest validation available without a
+# comparison run: wMel signal in the uninfected libraries, which is ambient by
+# construction. Sets the floor every titer claim is measured against, and the
+# per-cell-type AUROC says which cell types can carry a titer claim at all.
+rule rescue_uninfected_floor:
+    input:
+        counts = rules.rescue_pseudobulk_all.output.counts,
+    output:
+        sep   = f"{RESCUE_DIR}/uninfected_floor/titer_separation.tsv",
+        floor = f"{RESCUE_DIR}/uninfected_floor/uninfected_floor.tsv",
+        prof  = f"{RESCUE_DIR}/uninfected_floor/ambient_profile.tsv.gz",
+    params:
+        outdir   = f"{RESCUE_DIR}/uninfected_floor",
+        quantile = config.get("rescue_floor_quantile", 0.99),
+    log: "logs/rescue/uninfected_floor.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 128000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/16_uninfected_floor.py \\
+            --counts {input.counts} --outdir {params.outdir} \\
+            --floor_quantile {params.quantile}
         """
