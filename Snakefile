@@ -1564,7 +1564,8 @@ rule rescue_titer_programs:
 # it the GC term is dropped and everything else still runs.
 rule rescue_detection_bias:
     input:
-        counts = rules.rescue_pseudobulk_all.output.counts,
+        counts  = rules.rescue_pseudobulk_all.output.counts,
+        exclude = f"{RESCUE_DIR}/label_qc/debris_cells.tsv",
     output:
         tests  = f"{RESCUE_DIR}/detection_bias/wmel_feature_tests.tsv",
         model  = f"{RESCUE_DIR}/detection_bias/wmel_detection_model.tsv",
@@ -1588,7 +1589,8 @@ rule rescue_detection_bias:
         conda activate {SCANPY_ENV}
         {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/14_wmel_detection_bias.py \\
             --counts {input.counts} --gff {params.gff} --outdir {params.outdir} \\
-            --min_cell_wmel {params.min_umi} {params.fasta}
+            --min_cell_wmel {params.min_umi} --exclude_cells {input.exclude} \\
+            {params.fasta}
         """
 
 # Host-fidelity control: composition and per-cell-type expression against the
@@ -1633,7 +1635,8 @@ rule rescue_atlas_fidelity:
 # per-cell-type AUROC says which cell types can carry a titer claim at all.
 rule rescue_uninfected_floor:
     input:
-        counts = rules.rescue_pseudobulk_all.output.counts,
+        counts  = rules.rescue_pseudobulk_all.output.counts,
+        exclude = f"{RESCUE_DIR}/label_qc/debris_cells.tsv",
     output:
         sep   = f"{RESCUE_DIR}/uninfected_floor/titer_separation.tsv",
         floor = f"{RESCUE_DIR}/uninfected_floor/uninfected_floor.tsv",
@@ -1651,5 +1654,5 @@ rule rescue_uninfected_floor:
         conda activate {SCANPY_ENV}
         {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/16_uninfected_floor.py \\
             --counts {input.counts} --outdir {params.outdir} \\
-            --floor_quantile {params.quantile}
+            --floor_quantile {params.quantile} --exclude_cells {input.exclude}
         """

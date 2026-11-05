@@ -66,7 +66,27 @@ def parse_args():
                    help="quantile of uninfected per-cell titer used as the floor")
     p.add_argument("--min_cells", type=int, default=20,
                    help="minimum cells per group for a per-cell-type statistic")
+    p.add_argument("--exclude_cells", default=None,
+                   help="TSV with an obs_name column (label_qc/debris_cells.tsv); these "
+                        "cells are dropped before anything is computed, because "
+                        "counts_labeled.h5ad still contains the debris")
     return p.parse_args()
+
+
+def drop_excluded(a, path):
+    """Remove the listed obs_names; the floor and separation statistics are about
+    real cells, so debris must go before any of them are computed."""
+    if not path:
+        print("No --exclude_cells given: debris is still in this cell set, and the "
+              "artefact / unannotated labels are mostly debris")
+        return a
+    drop = set(pd.read_csv(path, sep="\t")["obs_name"].astype(str))
+    hit = a.obs_names.isin(drop)
+    if len(drop) and not hit.any():
+        raise SystemExit(f"none of the {len(drop):,} obs_names in {path} are in the "
+                         "counts object; check the <sample>__<barcode> convention")
+    print(f"Excluded {int(hit.sum()):,} of {a.n_obs:,} cells listed in {path}")
+    return a[~hit].copy()
 
 
 def auroc(a, b):
@@ -81,7 +101,7 @@ def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
-    a = ad.read_h5ad(args.counts)
+    a = drop_excluded(ad.read_h5ad(args.counts), args.exclude_cells)
     obs = a.obs.copy()
     for c in ("sample", "genotype", "infection_status", "tissue"):
         obs[c] = obs[c].astype(str)

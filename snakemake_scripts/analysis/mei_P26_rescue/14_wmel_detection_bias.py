@@ -112,27 +112,44 @@ def read_genome(path):
 
 
 def add_gc(feat, fasta):
+    """Per-locus GC, each locus sliced from its OWN contig.
+
+    The reference may be a combined host + symbiont genome, so the Wolbachia
+    contig is one record among many; looking each locus up by the contig named
+    in the annotation avoids guessing which record to use. A transcriptome
+    FASTA has no record matching a genome contig name, which is caught here
+    rather than silently producing GC from the wrong sequence.
+    """
     seqs = read_genome(fasta)
     if not seqs:
-        return feat
-    # pick the contig most loci sit on, falling back to the longest sequence
-    want = feat["contig"].mode()
-    key = None
-    for cand in (list(want) if len(want) else []):
-        if cand in seqs:
-            key = cand
-            break
-    if key is None:
-        key = max(seqs, key=lambda k: len(seqs[k]))
-        print(f"  contig names do not match the annotation; using {key} "
-              f"({len(seqs[key]):,} bp)")
-    s = seqs[key].upper()
+        raise SystemExit(f"no sequences read from {fasta}")
+    contigs = sorted(set(feat["contig"]))
+    missing = [c for c in contigs if c not in seqs]
+    if len(missing) == len(contigs):
+        raise SystemExit(
+            f"none of the annotation's contigs {contigs} are in {fasta}. "
+            f"First records there: {list(seqs)[:5]}. This looks like a "
+            "transcriptome rather than a genome; GC needs the genome the "
+            "annotation's coordinates refer to, so point --fasta at that or "
+            "leave wmel_genome empty to skip GC.")
+    if missing:
+        print(f"  contigs not in the FASTA, their loci get no GC: {missing}")
     gc = []
-    for a, b in zip(feat["start"], feat["end"]):
-        sub = s[max(a - 1, 0):b]
-        gc.append((sub.count("G") + sub.count("C")) / len(sub) if sub else np.nan)
+    for contig, a, b in zip(feat["contig"], feat["start"], feat["end"]):
+        s = seqs.get(contig)
+        if s is None:
+            gc.append(np.nan)
+            continue
+        sub = s[max(a - 1, 0):b].upper()
+        n = sub.count("G") + sub.count("C") + sub.count("A") + sub.count("T")
+        gc.append((sub.count("G") + sub.count("C")) / n if n else np.nan)
     feat["gc"] = gc
-    print(f"  GC computed for {int(np.isfinite(feat['gc']).sum())} loci from {key}")
+    ok = int(np.isfinite(feat["gc"]).sum())
+    print(f"  GC computed for {ok} of {len(feat)} loci from "
+          f"{', '.join(c for c in contigs if c in seqs)}")
+    if ok:
+        print(f"  GC range {np.nanmin(feat['gc']):.3f} to {np.nanmax(feat['gc']):.3f}, "
+              f"median {np.nanmedian(feat['gc']):.3f}")
     return feat
 
 
