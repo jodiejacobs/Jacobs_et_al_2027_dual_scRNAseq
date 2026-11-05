@@ -1250,8 +1250,10 @@ rule rescue_followup_all:
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_secretion_all.tsv",
         "results/integrated/integrated_clean.h5ad",
 
-# integrated.h5ad minus the debris cells flagged by 06. Point NMF / GSEA /
-# cluster_stats / summary_statistics / UMAP scripts at this file.
+# The analysis cell set: integrated.h5ad minus the debris flagged by 06 and
+# minus cells the atlas could not label confidently (most of integrated.h5ad is
+# unlabelled ambient droplets). Point NMF / GSEA / cluster_stats /
+# summary_statistics / UMAP scripts at this file, never at integrated.h5ad.
 rule rescue_integrated_clean:
     input:
         integrated = "results/integrated/integrated.h5ad",
@@ -1267,7 +1269,8 @@ rule rescue_integrated_clean:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
         {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/10_clean_integrated.py \
-            --integrated {input.integrated} --exclude_cells {input.exclude} --out {output}
+            --integrated {input.integrated} --exclude_cells {input.exclude} --out {output} \
+            --label_col {RESCUE_LABEL} --min_confidence {RESCUE_MINCONF}
         """
 
 rule rescue_label_qc:
