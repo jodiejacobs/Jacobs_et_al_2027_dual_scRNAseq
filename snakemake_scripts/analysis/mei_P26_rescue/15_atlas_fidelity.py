@@ -125,24 +125,24 @@ def main():
     cond = "condition" if "condition" in q.obs.columns else None
     ql = q.obs[args.label_col].astype(str)
     comp = pd.DataFrame({"query_all": ql.value_counts(normalize=True)})
+    col = "query_all"      # the query column compared to the atlas
     if cond and (q.obs[cond].astype(str) == args.reference_group).any():
         sub = ql[q.obs[cond].astype(str) == args.reference_group]
-        comp[f"query_{args.reference_group}"] = sub.value_counts(normalize=True)
+        col = f"query_{args.reference_group}"
+        comp[col] = sub.value_counts(normalize=True)
         print(f"\n{len(sub):,} cells in the reference group {args.reference_group!r}")
     else:
         print(f"\nreference group {args.reference_group!r} not found in obs[{cond!r}]; "
               "comparing all query cells")
     comp["atlas"] = at.obs[args.atlas_label_col].astype(str).value_counts(normalize=True)
     comp = comp.fillna(0.0)
-    comp["log2_ratio_vs_atlas"] = np.log2((comp.iloc[:, -2] + 1e-4)
-                                          / (comp["atlas"] + 1e-4))
+    comp["log2_ratio_vs_atlas"] = np.log2((comp[col] + 1e-4) / (comp["atlas"] + 1e-4))
     comp.index.name = "cell_type"
     comp.to_csv(os.path.join(args.outdir, "atlas_proportions.tsv"), sep="\t")
 
     shared_ct = comp.index[(comp["atlas"] > 0) & (comp["query_all"] > 0)]
     rho = None
     if len(shared_ct) > 2:
-        col = comp.columns[-2]
         if comp.loc[shared_ct, col].nunique() > 1 and comp.loc[shared_ct, "atlas"].nunique() > 1:
             rho = stats.spearmanr(comp.loc[shared_ct, col], comp.loc[shared_ct, "atlas"])
             print(f"Composition agreement over {len(shared_ct)} shared cell types: "
@@ -206,7 +206,6 @@ def main():
             fh.write(f"composition_spearman_p\t{rho.pvalue:.4g}\n")
 
     # ---- figures ----
-    col = comp.columns[-2]
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
     ax = axes[0]
     ax.scatter(comp.loc[shared_ct, "atlas"], comp.loc[shared_ct, col], s=30, c="#4C72B0")

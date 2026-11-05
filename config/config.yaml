@@ -169,3 +169,5 @@ rescue_atlas_max_cells: 0             # subsample the atlas (0 = all cells)
 
 # rule rescue_uninfected_floor (16)
 rescue_floor_quantile: 0.99           # quantile of uninfected per-cell titer used as the floor
+rescue_titer_prog_depth_col: "auto"   # "auto" prefers qc_host_counts over n_counts
+rescue_titer_prog_permutations: 2000  # within-group permutation null; floors p at 1/(N+1)

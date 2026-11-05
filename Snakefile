@@ -1538,9 +1538,12 @@ rule rescue_titer_programs:
     output:
         tests = f"{RESCUE_DIR}/titer_programs/titer_program_tests.tsv",
         cors  = f"{RESCUE_DIR}/titer_programs/titer_program_correlations.tsv",
+        persa = f"{RESCUE_DIR}/titer_programs/titer_program_per_sample.tsv",
     params:
         outdir    = f"{RESCUE_DIR}/titer_programs",
         min_cells = config.get("rescue_titer_prog_min_cells", 50),
+        depth_col = config.get("rescue_titer_prog_depth_col", "auto"),
+        perms     = config.get("rescue_titer_prog_permutations", 2000),
     log: "logs/rescue/titer_programs.log"
     resources:
         slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
@@ -1551,7 +1554,8 @@ rule rescue_titer_programs:
         conda activate {SCANPY_ENV}
         {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/13_titer_vs_programs.py \\
             --programs {input.programs} --outdir {params.outdir} \\
-            --label_col {RESCUE_LABEL} --min_cells {params.min_cells}
+            --label_col {RESCUE_LABEL} --min_cells {params.min_cells} \\
+            --depth_col {params.depth_col} --permutations {params.perms}
         """
 
 # Breadth control for Figure 1: detection across the wMel genome, and whether
