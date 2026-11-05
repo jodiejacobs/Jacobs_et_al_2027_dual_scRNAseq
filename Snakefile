@@ -1234,10 +1234,12 @@ rule rescue_summary:
 #                             Wolbachia DE; --gff adds gene products
 #   10_clean_integrated.py    integrated_clean.h5ad = integrated.h5ad minus debris
 #   11_wolbachia_secretion.py secretion class + effector evidence per wMel gene
+#   12_wolbachia_gsea.py      GO / KEGG / product-category enrichment on wMel DE
 # ---------------------------------------------------------------------------
 WMEL_GFF = config.get("wmel_gff", "")
 WMEL_FAA = config.get("wmel_proteins", "")        # optional, rule rescue_secretion
 WMEL_SIGNALP = config.get("wmel_signalp", "")     # optional, rule rescue_secretion
+WMEL_KEGG_DIR = config.get("wmel_kegg_dir", "")   # optional cache, rule rescue_gsea
 
 rule rescue_followup_all:
     input:
@@ -1248,6 +1250,7 @@ rule rescue_followup_all:
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv",
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_followup_summary.tsv",
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_secretion_all.tsv",
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_gsea.tsv",
         "results/integrated/integrated_clean.h5ad",
 
 # The analysis cell set: integrated.h5ad minus the debris flagged by 06 and
@@ -1450,4 +1453,43 @@ rule rescue_secretion:
             --gtf {params.gtf} --de_dir {params.de_dir} --outdir {params.outdir} \\
             --min_aa {params.min_aa} --min_cpm {params.min_cpm} \\
             {params.proteins} {params.signalp}
+        """
+
+# Gene-set enrichment on the Wolbachia DE ranking: GO terms parsed from the
+# annotation, KEGG pathways for the wMel organism code, and product-name
+# categories covering the genes neither ontology annotates. KEGG is fetched
+# over the network unless wmel_kegg_dir holds kegg_links.tsv and kegg_names.tsv
+# (both ship in reference/wMel_proteins/), so this runs offline by default.
+rule rescue_gsea:
+    input:
+        secretion = rules.rescue_secretion.output.all_loci,
+        followup  = rules.rescue_wolbachia_followup.output[0],
+    output:
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_gsea.tsv",
+    params:
+        gff      = WMEL_GFF,
+        de       = f"{RESCUE_DIR}/wolbachia_followup/wolbachia_de_checked.tsv.gz",
+        outdir   = f"{RESCUE_DIR}/wolbachia_followup",
+        tissue   = config.get("rescue_gsea_tissue", "pooled_all_tissues"),
+        kegg_org = config.get("wmel_kegg_org", "wol"),
+        kegg_dir = f"--kegg_dir {WMEL_KEGG_DIR}" if WMEL_KEGG_DIR else "",
+        min_set  = config.get("rescue_gsea_min_set", 5),
+        perms    = config.get("rescue_gsea_permutations", 2000),
+    log: "logs/rescue/gsea.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 16000, runtime = hms_to_minutes("0:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        if [ -z "{params.gff}" ]; then
+            echo "ERROR: set wmel_gff in config.yaml (GTF or GFF3 with go_* attributes)"
+            exit 1
+        fi
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/12_wolbachia_gsea.py \\
+            --gff {params.gff} --secretion {input.secretion} --de {params.de} \\
+            --outdir {params.outdir} --tissue {params.tissue} \\
+            --kegg_org {params.kegg_org} --min_set {params.min_set} \\
+            --permutations {params.perms} {params.kegg_dir}
         """

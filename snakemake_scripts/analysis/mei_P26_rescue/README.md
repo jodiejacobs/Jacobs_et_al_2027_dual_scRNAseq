@@ -16,6 +16,7 @@ Pseudobulk analysis by atlas cell type (`cell_type_annotation_broad` by default)
 | Wolbachia DE robustness (replicates, normalisation, pooled 2 vs 2) | `09_wolbachia_followup.R` | `wolbachia_followup/wolbachia_candidates.tsv` |
 | Integrated object without debris, for NMF / GSEA / UMAP / summary scripts | `10_clean_integrated.py` | `results/integrated/integrated_clean.h5ad` |
 | Which wMel genes could act in host cells (secretion class + evidence + DE) | `11_wolbachia_secretion.py` | `wolbachia_followup/wolbachia_secretion_all.tsv`, `_shortlist.tsv` |
+| Is the wMel response a functional shift? GO / KEGG / product-category enrichment | `12_wolbachia_gsea.py` | `wolbachia_followup/wolbachia_gsea.tsv` |
 
 ## Run
 
@@ -75,7 +76,8 @@ instead. Per-sample counts are in `label_qc/cell_counts_by_sample.tsv`.
 
 ## Wolbachia secretion annotation (11)
 
-Runs as `rule rescue_secretion`, part of `rescue_followup_all`:
+Run as `rule rescue_secretion` and `rule rescue_gsea`, both part of
+`rescue_followup_all`:
 
 ```bash
 snakemake rescue_followup_all --executor slurm -j 16
@@ -108,3 +110,19 @@ host-cytoplasmic delivery goes through the T4SS, whose signal is C-terminal and
 not predictable from sequence. Rank by the evidence tier, not the class, and
 never drop a candidate because the Kyte-Doolittle screen calls it membrane: it
 calls TomO and WalE1 membrane, and both act in host cells.
+
+## Wolbachia gene-set enrichment (12)
+
+`rule rescue_gsea` scores three set families against the pooled Wolbachia DE
+ranking: GO terms parsed from `wmel_gff`'s go_* attributes, KEGG pathways for
+`wmel_kegg_org`, and product-name categories defined in the script. KEGG comes
+from the cache in `wmel_kegg_dir` (shipped in `reference/wMel_proteins/`), so
+the rule runs with no network; clear that key to fetch from the KEGG REST API.
+Needs `gseapy` in the scanpy env.
+
+On the Nov 2026 data every family is null (best p = 0.014, FDR 0.14, for mobile
+elements). That is a statement about the annotation more than the biology: only
+~210 of 1,154 wMel genes survive filterByExpr, and GO and KEGG annotate
+housekeeping rather than host interaction, so 271 of 273 hypothetical proteins
+and all of CifA, TomO and WalE1 carry no GO term at all. Treat the gene-level
+results as the stronger read, and rerun this if the DE gains power.

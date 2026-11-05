@@ -142,3 +142,9 @@ wmel_proteins: "reference/wMel_proteins/wmel_proteins.faa"   # RefSeq wMel prote
 wmel_signalp: "reference/wMel_proteins/wmel_deepsig.gff"     # signal peptides: DeepSig GFF or TSV of protein_id + Y/N
 rescue_secretion_min_aa: 400    # length floor for the "uncharacterised" candidate tier
 rescue_secretion_min_cpm: 100   # germline CPM floor for the shortlist
+# rule rescue_gsea (12): gene-set enrichment on the Wolbachia DE ranking
+wmel_kegg_dir: "reference/wMel_proteins"   # cached kegg_links.tsv + kegg_names.tsv; "" to fetch over the network
+wmel_kegg_org: "wol"            # KEGG organism code for wMel; "" to skip KEGG
+rescue_gsea_tissue: "pooled_all_tissues"   # which Wolbachia DE contrast to rank by
+rescue_gsea_min_set: 5          # min tested genes per set
+rescue_gsea_permutations: 2000
