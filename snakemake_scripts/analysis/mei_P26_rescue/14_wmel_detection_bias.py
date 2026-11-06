@@ -60,6 +60,10 @@ def parse_args():
     p.add_argument("--gff", required=True, help="GTF/GFF3; only Wolbachia lines are read")
     p.add_argument("--outdir", required=True)
     p.add_argument("--fasta", default=None, help="Wolbachia genome FASTA (optional, for GC)")
+    p.add_argument("--exclude_cells", default=None,
+                   help="TSV with an obs_name column (label_qc/debris_cells.tsv); these "
+                        "cells are dropped before anything is computed, because "
+                        "counts_labeled.h5ad still contains the debris")
     p.add_argument("--min_cell_wmel", type=int, default=5,
                    help="a cell must carry this many wMel UMIs to count toward detection")
     p.add_argument("--seed", type=int, default=1)
@@ -153,8 +157,18 @@ def add_gc(feat, fasta):
     return feat
 
 
-def per_gene_stats(path, min_cell_wmel, seed):
+def per_gene_stats(path, min_cell_wmel, seed, exclude=None):
     a = ad.read_h5ad(path)
+    if exclude:
+        drop = set(pd.read_csv(exclude, sep="\t")["obs_name"].astype(str))
+        hit = a.obs_names.isin(drop)
+        if len(drop) and not hit.any():
+            raise SystemExit(f"none of the {len(drop):,} obs_names in {exclude} are in "
+                             "the counts object; check the <sample>__<barcode> convention")
+        print(f"Excluded {int(hit.sum()):,} of {a.n_obs:,} cells listed in {exclude}")
+        a = a[~hit].copy()
+    else:
+        print("No --exclude_cells given: debris is still in this cell set")
     is_w = np.asarray(pd.Index(a.var_names).str.startswith(WMEL_PREFIX))
     if is_w.sum() == 0:
         raise SystemExit("no wMel genes in --counts; check WMEL_PREFIX against the reference")
@@ -195,7 +209,8 @@ def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
-    tbl, rare, n_cells = per_gene_stats(args.counts, args.min_cell_wmel, args.seed)
+    tbl, rare, n_cells = per_gene_stats(args.counts, args.min_cell_wmel, args.seed,
+                                        args.exclude_cells)
     feat = parse_features(args.gff)
     print(f"{len(feat)} Wolbachia loci with coordinates in {os.path.basename(args.gff)}")
     if args.fasta and os.path.exists(args.fasta):
