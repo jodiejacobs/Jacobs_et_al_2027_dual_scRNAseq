@@ -220,6 +220,36 @@ def de_table(path, tissue):
     return d.set_index("gene_id")[["logFC", "FDR"]]
 
 
+def de_across_tissues(path, fdr_max=0.05):
+    """Per-locus summary of EVERY cell-type contrast, not just germline and pooled.
+
+    The germline and pooled contrasts miss candidates whose response is confined
+    to one cell type, which is how WD1063 (up in six contexts, FDR 2.9e-6) came
+    to be scored as tier-less and dropped from the shortlist. Robust means
+    replicate-consistent and leave-one-out sign-stable where those columns exist.
+    """
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    d = pd.read_csv(path, sep="\t")
+    d = d[d["FDR"] < fdr_max].copy()
+    for c in ("rep_consistent", "loo_sign_stable"):
+        if c in d.columns:
+            d = d[d[c].astype(str).str.upper().isin(("TRUE", "T", "1", "YES"))]
+    if not len(d):
+        return pd.DataFrame()
+    up, dn = d[d["logFC"] > 0], d[d["logFC"] < 0]
+    out = pd.DataFrame(index=sorted(set(d["gene_id"])))
+    out["n_up_contrasts"] = up.groupby("gene_id").size()
+    out["n_down_contrasts"] = dn.groupby("gene_id").size()
+    out[["n_up_contrasts", "n_down_contrasts"]] = \
+        out[["n_up_contrasts", "n_down_contrasts"]].fillna(0).astype(int)
+    out["best_up_logFC"] = up.groupby("gene_id")["logFC"].max()
+    out["best_up_FDR"] = up.groupby("gene_id")["FDR"].min()
+    out["up_contrast_tissues"] = (up.sort_values("FDR").groupby("gene_id")["tissue"]
+                                  .apply(lambda s: "; ".join(s.head(3))))
+    return out
+
+
 def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
@@ -259,10 +289,15 @@ def main():
     unchar = (prod.str.contains("hypothetical|DUF|uncharacteri") &
               (ann["secretion_class"] == "cytoplasmic_or_T4SS") &
               (ann["aa_length"].fillna(0) >= args.min_aa))
+    # A Sec signal peptide is host-acting evidence of its own kind: the protein
+    # reaches the bacterial surface, which is the host interface. Without its own
+    # tier these loci scored 0 and the shortlist filter dropped them, however
+    # strong their differential expression.
     ann["evidence_tier"] = np.where(ann["old"].isin(list(PUBLISHED)), "published",
                             np.where(ann["old"].isin(PREDICTED), "predicted",
                              np.where(ann["euk_domain"] != "", "domain",
-                              np.where(unchar, "uncharacterised", ""))))
+                              np.where(ann["signal_peptide"] == True, "surface",
+                               np.where(unchar, "uncharacterised", "")))))
     ann["evidence_note"] = ann["old"].map(PUBLISHED).fillna("")
     ann.loc[(ann["evidence_tier"] == "predicted") & (ann["evidence_note"] == ""),
             "evidence_note"] = "Predicted T4SS effector, yeast growth defect (Rice et al. 2017)"
@@ -270,6 +305,8 @@ def main():
         "Eukaryote-like domain: " + ann.loc[ann["evidence_tier"] == "domain", "euk_domain"]
     ann.loc[ann["evidence_tier"] == "uncharacterised", "evidence_note"] = \
         "Large soluble protein of unknown function (no signal peptide, no TM helix)"
+    ann.loc[ann["evidence_tier"] == "surface", "evidence_note"] = \
+        "Sec signal peptide: exported to the envelope / bacterial surface"
 
     ann = ann.set_index("locus_tag")
     ann["germline_cpm"] = wmel_cpm(os.path.join(args.de_dir, "germline", "pseudobulk"), "germline")
@@ -278,6 +315,18 @@ def main():
     p = de_table(os.path.join(args.de_dir, "wolbachia_followup", "wolbachia_de_checked.tsv.gz"),
                  "pooled_all_tissues")
     ann = ann.join(g.add_prefix("germline_")).join(p.add_prefix("pooled_"))
+    across = de_across_tissues(os.path.join(args.de_dir, "wolbachia_followup",
+                                            "wolbachia_de_sig_checked.tsv"))
+    if len(across):
+        ann = ann.join(across)
+        print(f"Per-cell-type DE: {int((ann['n_up_contrasts'].fillna(0) > 0).sum())} loci up "
+              f"in at least one contrast, "
+              f"{int((ann['n_down_contrasts'].fillna(0) > 0).sum())} down")
+    else:
+        for c in ("n_up_contrasts", "n_down_contrasts", "best_up_logFC",
+                  "best_up_FDR", "up_contrast_tissues"):
+            ann[c] = np.nan
+        print("No per-cell-type DE table found; scoring on germline and pooled only")
 
     # Direction: a factor that substitutes for Mei-P26 is expected to be no
     # lower in the mutant host, so "up" is the a priori interesting direction.
@@ -287,26 +336,62 @@ def main():
         [fdr.isna(), fdr >= 0.05, lfc > 0], ["not_tested", "n.s.", "up"], default="down")
     ann["best_FDR"] = fdr
 
-    tier_rank = {"published": 4, "predicted": 3, "domain": 2, "uncharacterised": 1, "": 0}
-    score = ann["evidence_tier"].map(tier_rank) * 10
-    score += np.where(ann["secretion_class"] == "cytoplasmic_or_T4SS", 3,
-              np.where(ann["secretion_class"] == "unknown", 1, 0))
-    score += np.where(ann["de_direction"] == "up", 3,
-              np.where(ann["de_direction"] == "down", 2,
-               np.where(ann["de_direction"] == "n.s.", 1, 0)))
-    score += np.where(ann["germline_cpm"].fillna(0) >= args.min_cpm, 2, 0)
-    ann["priority_score"] = score
+    # Where the protein can act, stated rather than buried in the score. A Sec
+    # signal peptide means the envelope, so those loci cannot reach cytoplasmic
+    # host targets; only T4SS delivery can, and that signal is not predictable
+    # from sequence. Filter on this column rather than inferring it from a rank.
+    ann["route"] = np.where(ann["secretion_class"] == "surface_periplasmic",
+                            "bacterial_surface",
+                            np.where(ann["secretion_class"] == "cytoplasmic_or_T4SS",
+                                     "host_cytoplasm_possible",
+                                     np.where(ann["secretion_class"] == "membrane",
+                                              "membrane_or_T4SS", "unknown")))
 
-    cols = ["old", "gene", "product", "aa_length", "secretion_class", "signal_peptide",
-            "tm_helices_kd", "euk_domain", "evidence_tier", "evidence_note",
-            "germline_cpm", "all_cells_cpm", "germline_logFC", "germline_FDR",
-            "pooled_logFC", "pooled_FDR", "de_direction", "best_FDR", "priority_score"]
+    # Evidence and differential expression are scored on comparable scales. The
+    # previous version weighted tier at 10 per rank against at most 3 for DE, so
+    # a domain-only locus with no DE outranked one that is up in six contrasts.
+    tier_rank = {"published": 12, "predicted": 9, "domain": 6, "surface": 5,
+                 "uncharacterised": 3, "": 0}
+    n_up = ann["n_up_contrasts"].fillna(0)
+    n_dn = ann["n_down_contrasts"].fillna(0)
+    de_score = np.where(n_up > 0, 6 + 2 * np.minimum(n_up, 4),
+                 np.where(n_dn > 0, 3 + np.minimum(n_dn, 3),
+                  np.where(ann["de_direction"] == "n.s.", 1, 0)))
+    ann["evidence_score"] = ann["evidence_tier"].map(tier_rank)
+    ann["de_score"] = de_score
+    ann["priority_score"] = (ann["evidence_score"] + de_score
+                             + np.where(ann["germline_cpm"].fillna(0) >= args.min_cpm, 2, 0)
+                             + np.where(ann["route"] != "bacterial_surface", 2, 0))
+
+    for c in ("n_up_contrasts", "n_down_contrasts"):
+        ann[c] = ann[c].fillna(0).astype(int)
+    cols = ["old", "gene", "product", "aa_length", "secretion_class", "route",
+            "signal_peptide", "tm_helices_kd", "euk_domain", "evidence_tier",
+            "evidence_note", "germline_cpm", "all_cells_cpm",
+            "germline_logFC", "germline_FDR", "pooled_logFC", "pooled_FDR",
+            "n_up_contrasts", "n_down_contrasts", "best_up_logFC", "best_up_FDR",
+            "up_contrast_tissues", "de_direction", "best_FDR",
+            "evidence_score", "de_score", "priority_score"]
+    cols = [c for c in cols if c in ann.columns]
     out = ann[cols].sort_values(["priority_score", "germline_cpm"], ascending=False)
     out.to_csv(os.path.join(args.outdir, "wolbachia_secretion_all.tsv"), sep="\t")
 
-    short = out[(out["evidence_tier"] != "") &
-                (out["germline_cpm"].fillna(0) >= args.min_cpm)]
+    # Admit a locus on EITHER host-acting evidence OR robust differential
+    # expression. The old filter required a tier, so a strongly up-regulated
+    # locus with no eukaryote-like domain was excluded no matter its statistics.
+    short = out[((out["evidence_tier"] != "") | (out["n_up_contrasts"] > 0)
+                 | (out["n_down_contrasts"] >= 2))
+                & (out["germline_cpm"].fillna(0) >= args.min_cpm)]
     short.to_csv(os.path.join(args.outdir, "wolbachia_secretion_shortlist.tsv"), sep="\t")
+
+    ups = out[(out["n_up_contrasts"] > 0) & (out["evidence_tier"] != "")]
+    if len(ups):
+        print(f"\nSecretion-competent and UP in a Mei-P26 host ({len(ups)} loci), "
+              "the set a substitute-for-Mei-P26 hypothesis needs:")
+        print(ups[["old", "product", "route", "evidence_tier", "n_up_contrasts",
+                   "best_up_logFC", "best_up_FDR"]].head(15).round(3).to_string())
+        print("  route = bacterial_surface cannot reach cytoplasmic host targets; "
+              "only T4SS delivery can, and that signal is not sequence-predictable.")
 
     if "signal_peptide" in out and out["signal_peptide"].notna().any():
         print("\nSecretion class, all loci:")
