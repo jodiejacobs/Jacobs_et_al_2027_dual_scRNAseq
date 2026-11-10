@@ -232,9 +232,19 @@ def de_across_tissues(path, fdr_max=0.05):
         return pd.DataFrame()
     d = pd.read_csv(path, sep="\t")
     d = d[d["FDR"] < fdr_max].copy()
-    for c in ("rep_consistent", "loo_sign_stable"):
-        if c in d.columns:
-            d = d[d[c].astype(str).str.upper().isin(("TRUE", "T", "1", "YES"))]
+    # Use the composite `robust` flag from 09, not its two component columns.
+    # `robust` additionally requires FDR_excl_dominant < fdr, i.e. that the
+    # result survives renormalising without the dominant rRNA loci, and that no
+    # sample has a zero count. Since rRNA carries 85% of the wMel read budget,
+    # a locus that fails that check may be reporting the normalisation rather
+    # than its own expression, which is exactly what WD0434 turned out to do.
+    flag = "robust" if "robust" in d.columns else None
+    if flag:
+        d = d[d[flag].astype(str).str.upper().isin(("TRUE", "T", "1", "YES"))]
+    else:
+        for c in ("rep_consistent", "loo_sign_stable"):
+            if c in d.columns:
+                d = d[d[c].astype(str).str.upper().isin(("TRUE", "T", "1", "YES"))]
     if not len(d):
         return pd.DataFrame()
     up, dn = d[d["logFC"] > 0], d[d["logFC"] < 0]
