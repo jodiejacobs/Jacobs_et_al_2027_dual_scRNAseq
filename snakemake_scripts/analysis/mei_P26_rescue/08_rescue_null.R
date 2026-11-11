@@ -185,9 +185,15 @@ for (what in c("median_rf", "n_interaction")) {
   rng <- range(c(ov, null[[what]]), na.rm = TRUE)
   plot(NA, xlim = rng, ylim = c(0.5, length(ti) + 0.5), yaxt = "n", ylab = "",
        xlab = if (what == "median_rf") "median rescue fraction" else "n interaction genes (FDR<0.05)",
-       main = "grey = 16 balanced relabellings; red = observed", cex.main = 0.8)
+       main = sprintf("grey = %d relabellings; red = observed", n_null), cex.main = 0.8)
   axis(2, at = seq_along(ti), labels = ti, las = 1, cex.axis = 0.7)
-  for (j in seq_along(ti)) points(null[null$tissue == ti[j], what], rep(j, 16), pch = 16, col = "#00000040")
+  # Take the y length from the data rather than a constant: the number of null
+  # draws per tissue is set by the permutation set, so hardcoding it breaks the
+  # plot whenever that set changes.
+  for (j in seq_along(ti)) {
+    v <- null[null$tissue == ti[j], what]
+    points(v, rep(j, length(v)), pch = 16, col = "#00000040")
+  }
   points(ov, seq_along(ti), pch = 18, col = "#d7301f", cex = 1.6)
 }
 invisible(dev.off())

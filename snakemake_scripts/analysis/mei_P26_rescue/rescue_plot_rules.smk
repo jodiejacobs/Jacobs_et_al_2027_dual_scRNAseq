@@ -63,6 +63,13 @@ _V = {  # two versions: <stem>_robust and <stem>_all
     "fig5_rescue_null": (
         "plot_rescue_null_summary.py",
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv", ""),
+    # The germline branch runs the same permutation null on germline-only
+    # pseudobulks and its subclusters, so it carries the same claim and gets
+    # the same panel.
+    "fig5_germline_rescue_null": (
+        "plot_rescue_null_summary.py",
+        f"{RESCUE_DIR}/germline/rescue_null/rescue_null_summary.tsv",
+        "--drop_labels ''"),
     "fig5_host_de_summary": (
         "plot_host_de_summary.py",
         f"{RESCUE_DIR}/de/host_de_summary.tsv", ""),
