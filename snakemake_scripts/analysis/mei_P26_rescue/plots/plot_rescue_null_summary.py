@@ -100,10 +100,43 @@ def build(d, args, suffix, note_txt):
             "p_median_rf", "obs_n_interaction", "null_n_interaction_mean",
             "null_n_interaction_max", "p_n_interaction"]
     print(d[[c for c in cols if c in d.columns]].round(4).to_string(index=False))
-    both = d[(d["p_median_rf"] < args.alpha) & (d["p_n_interaction"] < args.alpha)]
-    print(f"\n{len(both)} cell types beat the null on both statistics: "
-          f"{', '.join(ct_short(both['tissue'])) or 'none'}. These are the only "
-          "ones where the rescue claim is supported against permuted labels.")
+    # A permutation p cannot go below 1/(n_perm + 1). When every p sits on that
+    # floor, "nothing is significant" says only that too few permutations were
+    # run, and reading it as evidence against rescue inverts the result.
+    pmin = float(np.nanmin(np.r_[d["p_median_rf"], d["p_n_interaction"]]))
+    implied = int(round(1 / pmin - 1)) if pmin > 0 else None
+    if pmin > args.alpha:
+        n_at = int(np.isclose(np.r_[d["p_median_rf"], d["p_n_interaction"]],
+                              pmin).sum())
+        print(f"\nThe smallest p-value in this table is {pmin:.4f} = "
+              f"1/({implied}+1), the floor for {implied} permutations, and "
+              f"{n_at} of {2 * len(d)} tests sit exactly on it. "
+              f"No cell type can reach p < {args.alpha} "
+              "however large its effect, so the absence of significance here is a "
+              "property of the permutation set, not of the data.\n"
+              "This is not a count you can simply raise: with 2 replicates per "
+              "group the relabellings are exhaustible, so the floor is set by how "
+              "many distinct ones the scheme admits. Using every within-genotype "
+              "relabelling, choose(4,2) = 6 per genotype, gives 35 null draws and "
+              f"a floor of {1/36:.4f}, which clears {args.alpha}. A floor of "
+              "0.0588 means the run used only the 16 mixed assignments; "
+              "regenerate it with the full set before quoting any p-value here.")
+    else:
+        both = d[(d["p_median_rf"] < args.alpha) & (d["p_n_interaction"] < args.alpha)]
+        print(f"\n{len(both)} cell types beat the null on both statistics: "
+              f"{', '.join(ct_short(both['tissue'])) or 'none'}. These are the only "
+              "ones where the rescue claim is supported against permuted labels.")
+
+    # Separation from the null is readable whatever the permutation count.
+    clear = d[d["obs_n_interaction"] > d["null_n_interaction_max"]]
+    if len(clear):
+        print(f"\nSeparation from the null, which the p-value floor does not "
+              f"affect: {len(clear)} of {len(d)} cell types have more "
+              "interaction-significant genes than any permutation produced "
+              f"(observed {int(clear['obs_n_interaction'].min())} to "
+              f"{int(clear['obs_n_interaction'].max())} against a null maximum of "
+              f"{int(d['null_n_interaction_max'].max())}). That gap, not the "
+              "p-value, is the evidence to report until the null is rerun.")
     inflated = d[(d["obs_median_rf"] <= d["null_median_rf_max"])
                  & (d["obs_median_rf"] > d["null_median_rf_mean"])]
     if len(inflated):

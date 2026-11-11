@@ -102,9 +102,12 @@ _S = {  # one figure: the table has nothing meaningful to filter on
     "fig1_wmel_breadth": (
         "plot_wmel_breadth.py",
         f"{RESCUE_DIR}/detection_bias/wmel_breadth.tsv", ""),
+    # --total_loci lets the script tell complete recovery (the curve reached
+    # every annotated locus) from an unsaturated one (it ran out of cells).
     "fig1_wmel_rarefaction": (
         "plot_wmel_rarefaction.py",
-        f"{RESCUE_DIR}/detection_bias/wmel_rarefaction.tsv", ""),
+        f"{RESCUE_DIR}/detection_bias/wmel_rarefaction.tsv",
+        "--total_loci {}".format(config.get("rescue_total_wmel_loci", 1056))),
     "fig2_wmel_feature_tests": (
         "plot_wmel_feature_tests.py",
         f"{RESCUE_DIR}/detection_bias/wmel_feature_tests.tsv", ""),

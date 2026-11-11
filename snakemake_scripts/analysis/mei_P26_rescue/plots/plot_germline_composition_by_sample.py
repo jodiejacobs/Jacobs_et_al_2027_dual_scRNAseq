@@ -51,6 +51,10 @@ def parse_args():
     p.add_argument("--input", required=True)
     p.add_argument("--outdir", required=True)
     p.add_argument("--stem", default="fig4_germline_composition")
+    p.add_argument("--tie_tol", type=float, default=0.05,
+                   help="groups within this relative gap are treated as tied, so "
+                        "a denominator ordering that swaps them is not reported "
+                        "as a conflict")
     p.add_argument("--version", choices=("robust", "all", "both"), default="both")
     return p.parse_args()
 
@@ -102,12 +106,34 @@ def build(d, args, metrics, suffix, note_txt):
 
     summ = d.groupby("group")[list(metrics) + ["n_germline", "n_cells"]].mean()
     print(summ.reindex(groups).round(4).to_string())
+    # Flag a disagreement only where the groups that swap places actually differ.
+    # Two groups within a few percent of each other can swap on rounding, and
+    # reporting that as a conflict between denominators is a false alarm.
     if len(metrics) > 1:
-        rank = {m: summ[m].reindex(groups).rank().tolist() for m in metrics}
-        if len({tuple(v) for v in rank.values()}) > 1:
-            print("The denominators disagree on the group ordering. Quote the "
-                  "dissection-independent one and say the others differ, rather "
-                  "than picking whichever supports the claim.")
+        rank = {m: tuple(summ[m].reindex(groups).rank()) for m in metrics}
+        if len(set(rank.values())) > 1:
+            real = []
+            for a in range(len(groups)):
+                for b in range(a + 1, len(groups)):
+                    ga, gb = groups[a], groups[b]
+                    signs, gaps = set(), []
+                    for m in metrics:
+                        va, vb = summ.at[ga, m], summ.at[gb, m]
+                        denom = max(abs(va), abs(vb)) or 1.0
+                        gaps.append(abs(va - vb) / denom)
+                        signs.add(np.sign(va - vb))
+                    # A real conflict: the order flips AND the pair is separated
+                    # by more than args.tie_tol under every denominator.
+                    if len(signs) > 1 and min(gaps) > args.tie_tol:
+                        real.append(f"{ga} vs {gb}")
+            if real:
+                print(f"The denominators disagree on {', '.join(real)}. Quote the "
+                      "dissection-independent one and say the others differ, "
+                      "rather than picking whichever supports the claim.")
+            else:
+                print(f"Denominator orderings differ only for groups within "
+                      f"{args.tie_tol:.0%} of each other, which is a tie rather "
+                      "than a conflict. All three support the same conclusion.")
 
 
 def main():

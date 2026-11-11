@@ -10,14 +10,19 @@
 # This script does two things per tissue (same min_cells / min_reps filters
 # as 03_edger_de.R):
 #
-# 1. NULL: relabel infection status at the SAMPLE level within each genotype
-#    so every relabelled group holds one true-uninfected and one true-wMel
-#    sample (2 x 2 = 4 assignments per genotype, 16 per tissue; the observed
-#    labelling is never one of them). Refit the same edgeR QL model and recompute the median
-#    rescue_fraction and the n of genes called full/partial. The observed
-#    value is then compared with these 16 null values. With n = 2 per group
-#    this is the complete balanced permutation set; the smallest possible
-#    empirical p is 1/17.
+# 1. NULL: relabel infection status at the SAMPLE level within each genotype.
+#    Every way to call 2 of a genotype's 4 samples "uninfected" is used,
+#    choose(4, 2) = 6 per genotype, so 6 x 6 = 36 global relabellings; the
+#    observed one is dropped, leaving 35 null draws per tissue. Refit the same
+#    edgeR QL model and recompute the median rescue_fraction and the n of genes
+#    called full/partial, then compare the observed value with those 35. The
+#    smallest attainable empirical p is 1/36 = 0.028.
+#
+#    This replaces an earlier scheme that used only the 4 "mixed" assignments
+#    per genotype (16 null draws, floor 1/17 = 0.059). That floor sits above
+#    0.05, so nothing could reach significance however large the effect, and
+#    every p-value it reported was the floor rather than a measurement. Any
+#    p-value from a run before 2026-11-10 is not interpretable; regenerate it.
 #
 # 2. SUPPORTED RESCUE: genes DE in the uninfected mutant (genotype_in_uninf
 #    FDR < fdr) with a significant interaction (FDR < fdr) whose sign opposes
@@ -78,15 +83,35 @@ rescue_stats <- function(tab, fdr) {
 
 # balanced relabellings of infection within each genotype: pick one true-uninf
 # and one true-wMel sample to call "uninf"
-balanced_sets <- function(samp_meta, geno) {
+# Every way to call 2 of a genotype's 4 samples "uninfected": choose(4, 2) = 6
+# per genotype, so 6 x 6 = 36 global relabellings. One of those is the observed
+# labelling, leaving 35 null draws and a smallest attainable p of 1/36 = 0.028.
+#
+# The earlier version used only the 4 "mixed" assignments per genotype, each
+# pseudo-group holding one true-uninfected and one true-wMel sample. That gave
+# 16 null draws and a floor of 1/17 = 0.059, which sits ABOVE 0.05, so no
+# tissue could reach significance however large its effect and every reported
+# p-value was the floor rather than a measurement. The two assignments it left
+# out per genotype, calling both true-uninfected or both true-wMel samples
+# "uninfected", are exchangeable under the null of no infection effect and are
+# exactly the draws that make the test able to reject.
+label_sets <- function(samp_meta, geno) {
   s <- samp_meta[samp_meta$geno == geno, ]
   u <- s$sample[s$infection_status == "uninf"]; w <- s$sample[s$infection_status == "wMel"]
   if (length(u) != 2 || length(w) != 2) stop("expected 2 uninf + 2 wMel samples for ", geno)
-  apply(expand.grid(u = u, w = w, stringsAsFactors = FALSE), 1, function(r) unname(r))
+  sets <- combn(c(u, w), 2)
+  observed <- which(apply(sets, 2, function(p) setequal(p, u)))
+  stopifnot(length(observed) == 1)
+  list(sets = sets, observed = observed)
 }
 samp_meta <- unique(meta[, c("sample", "geno", "infection_status")])
-perm_ore <- balanced_sets(samp_meta, "OreR")
-perm_mei <- balanced_sets(samp_meta, "MeiP26")
+ls_ore <- label_sets(samp_meta, "OreR")
+ls_mei <- label_sets(samp_meta, "MeiP26")
+perm_ore <- ls_ore$sets
+perm_mei <- ls_mei$sets
+n_null <- ncol(perm_ore) * ncol(perm_mei) - 1
+cat(sprintf("Permutation set: %d x %d relabellings minus the observed = %d null draws; smallest attainable p = %.4f\n",
+            ncol(perm_ore), ncol(perm_mei), n_null, 1 / (n_null + 1)))
 
 null_rows <- list(); obs_rows <- list(); supported <- list()
 for (tis in sort(unique(meta$tissue))) {
@@ -99,6 +124,7 @@ for (tis in sort(unique(meta$tissue))) {
 
   k <- 0
   for (a in seq_len(ncol(perm_ore))) for (b in seq_len(ncol(perm_mei))) {
+    if (a == ls_ore$observed && b == ls_mei$observed) next   # that one is the data
     as_uninf <- c(perm_ore[, a], perm_mei[, b])
     g <- paste(m$geno, ifelse(m$sample %in% as_uninf, "uninf", "wMel"), sep = "_")
     k <- k + 1
