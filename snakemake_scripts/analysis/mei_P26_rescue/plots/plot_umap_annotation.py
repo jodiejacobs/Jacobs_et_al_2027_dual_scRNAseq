@@ -51,9 +51,12 @@ def parse_args():
     p.add_argument("--outdir", required=True)
     p.add_argument("--stem", default="fig1_umap_annotation")
     p.add_argument("--comp_stem", default="fig1_composition_by_sample")
-    p.add_argument("--min_frac", type=float, default=0.005,
-                   help="labels below this share of cells are pooled into "
-                        "'other' in the legend, which otherwise runs to 20+ rows")
+    p.add_argument("--min_frac", type=float, default=0.0,
+                   help="pool labels below this share of cells into 'other'. "
+                        "Default 0, which pools nothing: on the fine annotation "
+                        "even 0.005 would hide 11 of 21 cell types, escort cells "
+                        "and germ cell stage 4+ among them. Raise it only for the "
+                        "broad annotation, or when a legend is genuinely unreadable")
     return p.parse_args()
 
 
@@ -106,16 +109,24 @@ def main():
     big = [k for k in frac.index if frac[k] >= args.min_frac]
     shown = lv.where(lv.isin(big), "other")
     order = [k for k in frac.index if k in big] + (["other"] if (shown == "other").any() else [])
-    cmap = plt.get_cmap("tab20")
-    colour = {k: (COL["lightgrey"] if k == "other" else cmap(i % 20))
+    # tab20 repeats after 20 colours and the fine annotation has 21 cell types,
+    # so the 21st would be indistinguishable from the 1st. Two maps give 40.
+    pal = [c for cm in ("tab20", "tab20b") for c in plt.get_cmap(cm).colors]
+    colour = {k: (COL["lightgrey"] if k == "other" else pal[i % len(pal)])
               for i, k in enumerate(order)}
 
     # ---- UMAP ----
     fig, ax = plt.subplots(figsize=(WIDE * 0.62, 4.2))
-    rng = np.random.default_rng(0)
-    idx = rng.permutation(len(xy))        # draw order, so no label sits on top
-    ax.scatter(xy[idx, 0], xy[idx, 1], s=1.2, linewidths=0, alpha=0.6,
-               c=[colour[k] for k in shown.to_numpy()[idx]], rasterized=True)
+    # Draw most abundant first so the rarest land on top. Shuffling would bury
+    # them: several fine labels hold under 100 cells against 35,000 in the
+    # largest, and a population drawn under that is simply not visible.
+    sv = shown.to_numpy()
+    for k in order:
+        m = sv == k
+        if not m.any():
+            continue
+        ax.scatter(xy[m, 0], xy[m, 1], s=1.2, linewidths=0, alpha=0.6,
+                   color=colour[k], rasterized=True)
     ax.set_xticks([])
     ax.set_yticks([])
     for s in ("left", "bottom"):
