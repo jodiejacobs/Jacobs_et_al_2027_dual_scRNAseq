@@ -1816,6 +1816,47 @@ rule rescue_plots_all:
     input:
         [f"{FIG_DIR}/{s}_{v}.pdf" for s in _V for v in ("robust", "all")],
         [f"{FIG_DIR}/{s}.pdf" for s in _S],
+        f"{FIG_DIR}/fig1_umap_annotation.pdf",
+        f"{FIG_DIR}/fig1_composition_by_sample.pdf",
+
+
+rule rescue_plot_umap_annotation:
+    """Figure 1 UMAP and per-sample composition, real cells only.
+
+    The odd one out: it reads the integrated AnnData rather than a results
+    table, because the UMAP coordinates live only in obsm["X_umap_atlas"].
+    The equivalent panels in figures/ come from plot_diagnostics() in
+    integrate_via_atlas_projection.py, which runs before 06_label_qc.py has
+    called debris, so they include all barcodes. Everything downstream of
+    rescue_pseudobulk is already debris-free because that rule passes
+    --exclude_cells, which leaves those two as the only panels that are not.
+    """
+    input:
+        integrated = "results/integrated/integrated.h5ad",
+        exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
+        script = f"{PLOT_SCRIPTS}/plot_umap_annotation.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        umap = f"{FIG_DIR}/fig1_umap_annotation.pdf",
+        comp = f"{FIG_DIR}/fig1_composition_by_sample.pdf",
+        csv = f"{FIG_DIR}/fig1_composition_by_sample.csv",
+    params:
+        outdir = FIG_DIR,
+        exclude_flag = f"--exclude_cells {RESCUE_DEBRIS}" if RESCUE_DEBRIS else "",
+    log: "logs/rescue/plots/fig1_umap_annotation.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --integrated {input.integrated} --outdir {params.outdir} \
+            --label_col {RESCUE_LABEL} {params.exclude_flag}
+        """
+
+
 
 
 rule rescue_plot_versioned:
