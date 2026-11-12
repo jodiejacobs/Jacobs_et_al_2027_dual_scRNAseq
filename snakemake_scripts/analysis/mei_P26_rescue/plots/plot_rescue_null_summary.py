@@ -51,21 +51,27 @@ def parse_args():
     return p.parse_args()
 
 
-def panel(ax, d, obs, nmean, nmax, pcol, xlabel, title, args):
+def panel(ax, d, obs, nmean, nmax, pcol, xlabel, title, args, floored=False):
     d = d.sort_values(obs)
     y = np.arange(len(d))
-    sig = d[pcol] < args.alpha
+    # When the permutation floor sits above alpha, no point can ever be called
+    # significant and colouring by p would paint a clean sweep entirely grey.
+    # Fall back to the comparison this design can actually make: does the
+    # observed value exceed every null draw?
+    beats = d[obs] > d[nmax]
+    filled = beats if floored else (d[pcol] < args.alpha)
     for yi, (_, r) in zip(y, d.iterrows()):
         ax.plot([r[nmean], r[nmax]], [yi, yi], color=COL["lightgrey"], lw=3.2,
                 solid_capstyle="butt", zorder=2)
     ax.scatter(d[nmean], y, s=10, marker="|", color=COL["grey"], zorder=3)
     ax.scatter(d[obs], y, s=28, zorder=4,
-               color=[COL["green"] if s else COL["lightgrey"] for s in sig],
+               color=[COL["green"] if s else COL["lightgrey"] for s in filled],
                edgecolors=COL["black"], linewidths=0.4)
-    for yi, (_, r) in zip(y, d.iterrows()):
-        s = fdr_stars(r[pcol])
-        if s:
-            ax.text(r[obs], yi + 0.26, s, ha="center", fontsize=6)
+    if not floored:
+        for yi, (_, r) in zip(y, d.iterrows()):
+            s = fdr_stars(r[pcol])
+            if s:
+                ax.text(r[obs], yi + 0.26, s, ha="center", fontsize=6)
     ax.set_yticks(y, ct_short(d["tissue"]), fontsize=6)
     ax.set_xlabel(xlabel)
     ax.set_title(title, pad=4)
@@ -75,21 +81,29 @@ def panel(ax, d, obs, nmean, nmax, pcol, xlabel, title, args):
 
 def build(d, args, suffix, note_txt):
     print(f"\n[{suffix}] {len(d)} cell types; {note_txt}")
+    # Is the smallest attainable p above alpha? If so the panels colour by
+    # "beats every null draw" instead of by significance, and the caption says so.
+    pmin = float(np.nanmin(np.r_[d["p_median_rf"], d["p_n_interaction"]]))
+    floored = pmin > args.alpha
     fig = plt.figure(figsize=(WIDE, 3.0))
     gs = fig.add_gridspec(1, 2, wspace=0.10)
 
     ax = fig.add_subplot(gs[0, 0])
     panel(ax, d, "obs_median_rf", "null_median_rf_mean", "null_median_rf_max",
           "p_median_rf", "median rescue fraction",
-          "Effect size vs permuted labels", args)
-    note(ax, "grey bar: null mean to null max; point: observed", y=-0.15)
+          "Effect size vs permuted labels", args, floored)
+    cap = ("grey bar: null mean to null max; point: observed; green: exceeds "
+           f"every one of the {int(round(1 / pmin - 1))} relabellings "
+           f"(p = {pmin:.3f}, the minimum this design attains)" if floored
+           else "grey bar: null mean to null max; point: observed")
+    note(ax, cap, y=-0.15)
     panel_letter(ax, "A", dx=-0.56)
 
     ax = fig.add_subplot(gs[0, 1])
     d2 = panel(ax, d, "obs_n_interaction", "null_n_interaction_mean",
                "null_n_interaction_max", "p_n_interaction",
                "interaction-significant genes",
-               "Gene count vs permuted labels", args)
+               "Gene count vs permuted labels", args, floored)
     ax.set_yticks(np.arange(len(d2)), [])
     panel_letter(ax, "B", dx=-0.06)
 
