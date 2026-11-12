@@ -11,12 +11,14 @@ fixed. Bar charts show sameness badly, because the reader's eye goes to the
 small differences between bars rather than to the fact that they are all alike.
 Every panel below is therefore a distribution or a point cloud.
 
-  A  per-cell titer, infected against uninfected. Two parts, because the
-     result has two: a bar for the cells with no wMel UMIs at all, which is
-     most of the uninfected set and a fifth of the infected one, and a
-     histogram for the cells that carry signal. The uninfected libraries
-     contain no Wolbachia, so their distribution is the assay's noise and the
-     gap between the two is the whole specificity claim.
+  A  per-cell titer, infected against uninfected, every cell in one axis. Zero
+     has no place on a log titer axis, so the cells with no wMel UMIs get a bin
+     of their own at the left, set off by an axis break and ticked "0". Height
+     is percent of that group's cells rather than density, so that bin reads
+     against the rest directly, and the axis is log because it holds 97% of the
+     uninfected cells while the bins to its right hold fractions of a percent.
+     The uninfected libraries contain no Wolbachia, so their distribution is
+     the assay's noise and the gap between the two is the specificity claim.
   B  AUROC per cell type as one point each, against chance. The claim is that
      they cluster high, not that any one of them is highest, so they are not
      ranked bars.
@@ -99,45 +101,58 @@ def main():
     fig = plt.figure(figsize=(WIDE, 5.0 if four else 2.7))
     gs = (fig.add_gridspec(2, 2, hspace=0.70, wspace=0.34) if four
           else fig.add_gridspec(1, 3, wspace=0.58,
-                                width_ratios=[1.62, 1.0, 1.2]))
+                                width_ratios=[1.35, 1.0, 1.2]))
     cell = (lambda i: gs[i // 2, i % 2]) if four else (lambda i: gs[0, i])
 
-    # ---- A: the separation, as distributions, with the zero class drawn ----
-    # Most uninfected cells carry zero wMel UMIs. Binning those zeros with the
-    # rest puts a spike at the axis edge taller than everything else and hides
-    # the comparison, but leaving them out of the drawing hides the larger half
-    # of the result, and a caption is not a panel. They therefore get their own
-    # narrow axis beside the histogram: every cell is drawn somewhere, and
-    # neither part crushes the other.
-    sub = cell(0).subgridspec(1, 2, width_ratios=[0.36, 1.0], wspace=0.60)
-    axz = fig.add_subplot(sub[0, 0])
-    ax = fig.add_subplot(sub[0, 1])
+    # ---- A: the whole titer distribution, zeros included ----
+    # Every cell is in this one axis. Zero has no place on a log titer axis, so
+    # the cells with no wMel UMIs get a bin of their own at the left, set off by
+    # an axis break and ticked "0". Height is percent of that group's cells, not
+    # density, so the zero bin can be read against the rest directly; the axis
+    # is log because that bin holds 97% of the uninfected cells and the bins to
+    # its right hold fractions of a percent, and a linear axis shows one or the
+    # other but never both.
+    ax = fig.add_subplot(cell(0))
     zu = float((obs.loc[un, "titer"] <= 0).mean())
     zi = float((obs.loc[~un, "titer"] <= 0).mean())
-    axz.bar([0, 1], [zu * 100, zi * 100], width=0.66,
-            color=[COL["grey"], COL["green"]], alpha=0.65,
-            edgecolor=COL["black"], linewidth=0.5)
-    for x, v in ((0, zu), (1, zi)):
-        axz.text(x, v * 100 + 2.0, f"{v:.0%}", ha="center", fontsize=5.5)
-    axz.set_xticks([0, 1], ["uninf", "inf"], fontsize=5.5)
-    axz.set_ylim(0, 110)
-    axz.set_yticks([0, 50, 100])
-    axz.set_ylabel("% of cells with no\nwMel UMIs at all", fontsize=6)
-    axz.set_title("No signal", pad=4, fontsize=6.5)
-    panel_letter(axz, "A", dx=-0.58)
     pos = obs[obs["titer"] > 0]
     pu = pos["infection_status"] == "uninf"
-    bins = np.linspace(np.log10(pos["titer"].min()), np.log10(pos["titer"].max()), 55)
-    for m, c, lab in ((pu, COL["grey"], "uninfected"), (~pu, COL["green"], "infected")):
-        ax.hist(np.log10(pos.loc[m, "titer"]), bins=bins, density=True, color=c,
-                alpha=0.65, edgecolor="none", label=lab)
-    ax.axvline(np.log10(floor), color=COL["vermillion"], lw=0.9, ls="--")
-    ax.set_xlabel("per-cell wMel titer (log$_{10}$)")
-    ax.set_ylabel("density of cells")
+    bins = np.linspace(np.log10(pos["titer"].min()), np.log10(pos["titer"].max()), 46)
+    w = bins[1] - bins[0]
+    zx = bins[0] - 4.2 * w          # the zero bin, left of a visible gap
+    groups = ((un, pu, COL["grey"], "uninfected"), (~un, ~pu, COL["green"], "infected"))
+    for mall, mpos, c, lab in groups:
+        n = int(mall.sum())
+        h, _ = np.histogram(np.log10(pos.loc[mpos, "titer"]), bins=bins)
+        ax.bar(bins[:-1], h / n * 100, width=w, align="edge", color=c,
+               alpha=0.62, linewidth=0, label=lab, zorder=2)
+        z = float((obs.loc[mall, "titer"] <= 0).mean()) * 100
+        ax.bar([zx], [z], width=w, align="edge", color=c, alpha=0.62,
+               edgecolor=COL["black"], linewidth=0.5, zorder=2)
+    ax.set_yscale("log")
+    ax.axvline(np.log10(floor), color=COL["vermillion"], lw=0.9, ls="--", zorder=3)
+    # The break mark, so the gap is read as a discontinuity in the scale and not
+    # as a run of empty bins. White segment first to erase the spine under it,
+    # then the two slashes across it.
+    xb = zx + 2.6 * w
+    tx = ax.get_xaxis_transform()
+    ax.plot([xb - 0.5 * w, xb + 0.5 * w], [0, 0], transform=tx, color="white",
+            lw=1.8, clip_on=False, zorder=5)
+    for dx in (-0.26 * w, 0.26 * w):
+        ax.plot([xb + dx - 0.22 * w, xb + dx + 0.22 * w], [-0.018, 0.018],
+                transform=tx, color=COL["black"], lw=0.7, clip_on=False, zorder=6)
+    ticks = [t for t in range(int(np.floor(bins[0])), int(np.ceil(bins[-1])) + 1)
+             if bins[0] <= t <= bins[-1]]
+    ax.set_xticks([zx + w / 2] + ticks,
+                  ["0"] + [f"$10^{{{t}}}$" for t in ticks])
+    ax.set_xlim(zx - 0.6 * w, bins[-1] + 0.4 * w)
+    ax.set_xlabel("per-cell wMel titer")
+    ax.set_ylabel("% of that group's cells")
     ax.set_title("Infection, not background", pad=4)
-    ax.legend(loc="upper left", fontsize=6)
-    note(ax, "the cells that carry any signal; the rest are in the bar at left",
-         y=-0.30)
+    ax.legend(loc="upper right", fontsize=6)
+    note(ax, f"every cell is here: {zu:.0%} of uninfected and {zi:.0%} of "
+             "infected carry no wMel UMIs", y=-0.30)
+    panel_letter(ax, "A", dx=-0.17)
 
     # ---- B: AUROC per cell type, one point each ----
     ax = fig.add_subplot(cell(1))
