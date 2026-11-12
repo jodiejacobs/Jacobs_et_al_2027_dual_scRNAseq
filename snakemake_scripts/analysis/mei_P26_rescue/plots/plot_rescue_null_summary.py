@@ -114,13 +114,15 @@ def build(d, args, suffix, note_txt):
               f"No cell type can reach p < {args.alpha} "
               "however large its effect, so the absence of significance here is a "
               "property of the permutation set, not of the data.\n"
-              "This is not a count you can simply raise: with 2 replicates per "
-              "group the relabellings are exhaustible, so the floor is set by how "
-              "many distinct ones the scheme admits. Using every within-genotype "
-              "relabelling, choose(4,2) = 6 per genotype, gives 35 null draws and "
-              f"a floor of {1/36:.4f}, which clears {args.alpha}. A floor of "
-              "0.0588 means the run used only the 16 mixed assignments; "
-              "regenerate it with the full set before quoting any p-value here.")
+              "This floor cannot be lowered. With 2 replicates per group the "
+              "balanced relabellings are exhaustible at 16, and the larger "
+              "choose(4,2) set does not help: its single-genotype flips reverse "
+              "a real main effect of infection and manufacture interaction "
+              "signal, while its global double flip leaves the interaction "
+              "magnitude unchanged and ties the observed value by construction. "
+              "Report the exact result instead, 'observed exceeds all 16 "
+              f"balanced relabellings, p = {pmin:.3f}, the minimum attainable at "
+              "n = 2 per group', together with the separation below.")
     else:
         both = d[(d["p_median_rf"] < args.alpha) & (d["p_n_interaction"] < args.alpha)]
         print(f"\n{len(both)} cell types beat the null on both statistics: "
