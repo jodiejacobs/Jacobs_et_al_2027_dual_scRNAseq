@@ -158,6 +158,7 @@ rule rescue_plots_all:
         [f"{FIG_DIR}/{s}.pdf" for s in _S],
         f"{FIG_DIR}/fig1_umap_annotation.pdf",
         f"{FIG_DIR}/fig1_composition_by_sample.pdf",
+        f"{FIG_DIR}/fig1_wmel_capture_summary.pdf",
 
 
 rule rescue_plot_umap_annotation:
@@ -194,6 +195,46 @@ rule rescue_plot_umap_annotation:
         {SCANPY_ENV}/bin/python {input.script} \
             --integrated {input.integrated} --outdir {params.outdir} \
             --label_col {RESCUE_LABEL} {params.exclude_flag}
+        """
+
+
+rule rescue_plot_gene_group_summary:
+    """Figure 1: wMel capture across all samples, as one panel.
+
+    rule gene_group_stats already writes a four-panel QC figure per sample.
+    Those are per-library diagnostics; this combines all eight so the
+    comparison between infected and uninfected libraries, which is the method
+    claim, is visible in a single figure.
+    """
+    input:
+        cell_stats = expand("results/qc/gene_group_stats/{sample_id}/cell_stats.csv",
+                            sample_id=SAMPLE_IDS),
+        group_summary = expand("results/qc/gene_group_stats/{sample_id}/group_summary.csv",
+                               sample_id=SAMPLE_IDS),
+        gene_stats = expand("results/qc/gene_group_stats/{sample_id}/gene_stats.csv",
+                            sample_id=SAMPLE_IDS),
+        exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
+        script = f"{PLOT_SCRIPTS}/plot_gene_group_summary.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        pdf = f"{FIG_DIR}/fig1_wmel_capture_summary.pdf",
+        png = f"{FIG_DIR}/fig1_wmel_capture_summary.png",
+    params:
+        outdir = FIG_DIR,
+        stats_dir = "results/qc/gene_group_stats",
+        samples = ",".join(SAMPLE_IDS),
+        exclude_flag = f"--exclude_cells {RESCUE_DEBRIS}" if RESCUE_DEBRIS else "",
+    log: "logs/rescue/plots/fig1_wmel_capture_summary.log"
+    resources:
+        slurm_partition = "short", mem_mb = 16000, runtime = hms_to_minutes("0:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --stats_dir {params.stats_dir} --samples {params.samples} \
+            --outdir {params.outdir} {params.exclude_flag}
         """
 
 
