@@ -31,7 +31,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from figstyle import (COL, LOW_CONFIDENCE, WIDE, apply_style, ct_short, note,
-                      panel_letter, save)
+                      panel_letter, sample_colours, sample_label, save)
 import matplotlib.pyplot as plt
 
 META = ("sample", "genotype", "infection_status", "group", "replicate", "condition")
@@ -55,6 +55,7 @@ def main():
     d = pd.read_csv(args.input, sep="\t", index_col=0)
     d = d.drop(columns=[c for c in d.columns if c in META], errors="ignore")
     C = d.apply(pd.to_numeric, errors="coerce").fillna(0)
+    C.index = C.index.astype(str)
     drop = {s.strip() for s in args.drop_labels.split(",") if s.strip()}
     C = C[[c for c in C.columns if c not in drop]]
     order = C.sum(axis=0).sort_values().index
@@ -65,36 +66,48 @@ def main():
     fig = plt.figure(figsize=(WIDE, max(2.8, 0.24 * len(order) + 1.6)))
     gs = fig.add_gridspec(1, 2, wspace=0.12, width_ratios=[1.0, 1.35])
 
+    # One colour per library, used in both panels, so a point in B can be traced
+    # to its bar in A. Panel A is therefore the key and no legend is needed.
+    scol, sorder = sample_colours(C.index)
+    sorder = [s for s in sorder if s in set(C.index.astype(str))]
+
     # ---- A: total yield per sample ----
     ax = fig.add_subplot(gs[0, 0])
     tot = C.sum(axis=1)
+    tot.index = tot.index.astype(str)
+    tot = tot.reindex(sorder)
     ys = np.arange(len(tot))
-    ax.barh(ys, tot, height=0.68, color=COL["blue"], zorder=3)
-    ax.set_yticks(ys, [str(s).replace("_", " ") for s in tot.index], fontsize=6)
+    ax.barh(ys, tot, height=0.68, zorder=3,
+            color=[scol[s] for s in tot.index],
+            edgecolor=COL["black"], linewidth=0.4)
+    ax.set_yticks(ys, [sample_label(s) for s in tot.index], fontsize=6)
     ax.set_xlabel("cells recovered")
     ax.set_title("Library yield", pad=4)
     lo, hi = tot.min(), tot.max()
-    note(ax, f"{hi / max(lo, 1):.1f}x between the largest and smallest library",
-         y=-0.12)
+    note(ax, f"{hi / max(lo, 1):.1f}x, largest to smallest library", y=-0.12)
     panel_letter(ax, "A", dx=-0.40)
 
     # ---- B: counts per cell type per sample ----
     ax = fig.add_subplot(gs[0, 1])
     y = np.arange(len(order))
-    for i, s in enumerate(C.index):
-        v = C.loc[s].to_numpy()
+    for i, s in enumerate(sorder):
+        v = C.loc[s].to_numpy(dtype=float)
         thin = v < args.min_cells
         j = (np.random.default_rng(i).random(len(v)) - 0.5) * 0.3
-        ax.scatter(np.clip(v, 0.5, None), y + j, s=12, zorder=3,
-                   color=[COL["lightgrey"] if t else COL["blue"] for t in thin],
-                   edgecolors="none")
+        # Colour now carries the sample, so a thin count cannot also be grey.
+        # It is marked by an open marker instead, which leaves both readable.
+        for m, fc, ec in ((~thin, scol[s], "none"), (thin, "none", scol[s])):
+            if m.any():
+                ax.scatter(np.clip(v[m], 0.5, None), (y + j)[m], s=12, zorder=3,
+                           facecolors=fc, edgecolors=ec, linewidths=0.6)
     ax.axvline(args.min_cells, color=COL["vermillion"], lw=0.9, ls="--", zorder=4)
     ax.set_xscale("log")
     ax.set_yticks(y, ct_short(order), fontsize=6)
     ax.set_xlabel("cells per sample")
     ax.set_title("Counts behind each proportion", pad=4)
-    note(ax, f"grey points are below {args.min_cells} cells", y=-0.12)
-    panel_letter(ax, "B", dx=-0.44)
+    note(ax, f"colour is the sample, keyed by the bars in A; open points are "
+             f"below {args.min_cells} cells", y=-0.12)
+    panel_letter(ax, "B", dx=-0.10)
 
     save(fig, args.outdir, args.stem)
 

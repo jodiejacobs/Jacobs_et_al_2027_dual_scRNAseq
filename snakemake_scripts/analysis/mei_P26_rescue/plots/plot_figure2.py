@@ -11,9 +11,12 @@ fixed. Bar charts show sameness badly, because the reader's eye goes to the
 small differences between bars rather than to the fact that they are all alike.
 Every panel below is therefore a distribution or a point cloud.
 
-  A  per-cell titer, infected against uninfected, as distributions. The
-     uninfected libraries contain no Wolbachia, so their distribution is the
-     assay's noise and the gap between the two is the whole specificity claim.
+  A  per-cell titer, infected against uninfected. Two parts, because the
+     result has two: a bar for the cells with no wMel UMIs at all, which is
+     most of the uninfected set and a fifth of the infected one, and a
+     histogram for the cells that carry signal. The uninfected libraries
+     contain no Wolbachia, so their distribution is the assay's noise and the
+     gap between the two is the whole specificity claim.
   B  AUROC per cell type as one point each, against chance. The claim is that
      they cluster high, not that any one of them is highest, so they are not
      ranked bars.
@@ -96,17 +99,32 @@ def main():
     fig = plt.figure(figsize=(WIDE, 5.0 if four else 2.7))
     gs = (fig.add_gridspec(2, 2, hspace=0.70, wspace=0.34) if four
           else fig.add_gridspec(1, 3, wspace=0.58,
-                                width_ratios=[1.25, 1.0, 1.2]))
+                                width_ratios=[1.62, 1.0, 1.2]))
     cell = (lambda i: gs[i // 2, i % 2]) if four else (lambda i: gs[0, i])
 
-    # ---- A: the separation, as distributions ----
-    # 95% of uninfected cells carry zero wMel UMIs. Binning those zeros with the
-    # rest puts a spike at the axis edge that is taller than everything else and
-    # hides the comparison, so the zero class is stated as a number and the
-    # histogram shows the cells that carry any signal at all.
-    ax = fig.add_subplot(cell(0))
+    # ---- A: the separation, as distributions, with the zero class drawn ----
+    # Most uninfected cells carry zero wMel UMIs. Binning those zeros with the
+    # rest puts a spike at the axis edge taller than everything else and hides
+    # the comparison, but leaving them out of the drawing hides the larger half
+    # of the result, and a caption is not a panel. They therefore get their own
+    # narrow axis beside the histogram: every cell is drawn somewhere, and
+    # neither part crushes the other.
+    sub = cell(0).subgridspec(1, 2, width_ratios=[0.36, 1.0], wspace=0.60)
+    axz = fig.add_subplot(sub[0, 0])
+    ax = fig.add_subplot(sub[0, 1])
     zu = float((obs.loc[un, "titer"] <= 0).mean())
     zi = float((obs.loc[~un, "titer"] <= 0).mean())
+    axz.bar([0, 1], [zu * 100, zi * 100], width=0.66,
+            color=[COL["grey"], COL["green"]], alpha=0.65,
+            edgecolor=COL["black"], linewidth=0.5)
+    for x, v in ((0, zu), (1, zi)):
+        axz.text(x, v * 100 + 2.0, f"{v:.0%}", ha="center", fontsize=5.5)
+    axz.set_xticks([0, 1], ["uninf", "inf"], fontsize=5.5)
+    axz.set_ylim(0, 110)
+    axz.set_yticks([0, 50, 100])
+    axz.set_ylabel("% of cells with no\nwMel UMIs at all", fontsize=6)
+    axz.set_title("No signal", pad=4, fontsize=6.5)
+    panel_letter(axz, "A", dx=-0.58)
     pos = obs[obs["titer"] > 0]
     pu = pos["infection_status"] == "uninf"
     bins = np.linspace(np.log10(pos["titer"].min()), np.log10(pos["titer"].max()), 55)
@@ -118,8 +136,8 @@ def main():
     ax.set_ylabel("density of cells")
     ax.set_title("Infection, not background", pad=4)
     ax.legend(loc="upper left", fontsize=6)
-    note(ax, f"cells with any signal; {zu:.0%} of uninfected carry none", y=-0.30)
-    panel_letter(ax, "A", dx=-0.17)
+    note(ax, "the cells that carry any signal; the rest are in the bar at left",
+         y=-0.30)
 
     # ---- B: AUROC per cell type, one point each ----
     ax = fig.add_subplot(cell(1))

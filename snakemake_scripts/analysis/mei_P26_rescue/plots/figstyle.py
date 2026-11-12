@@ -55,6 +55,48 @@ INFECTION = {"wMel": COL["green"], "uninf": COL["grey"],
              "uninfected": COL["grey"], "infected": COL["green"]}
 DIRECTION = {"up": COL["vermillion"], "down": COL["blue"], "ns": COL["lightgrey"]}
 
+# Per-sample colour. Eight libraries need eight colours, and eight unrelated
+# hues read as noise, so each genotype-by-infection group keeps its own hue and
+# its replicates are separated by shade. The four groups then stay legible at a
+# glance while individual libraries remain distinguishable.
+GROUP_BASE = {"OreR_uninf": COL["skyblue"], "OreR_wMel": COL["blue"],
+              "MeiP26_uninf": COL["orange"], "MeiP26_wMel": COL["vermillion"]}
+GROUP_ORDER = ["OreR_uninf", "OreR_wMel", "MeiP26_uninf", "MeiP26_wMel"]
+
+
+def _lighten(hexcol, frac):
+    c = hexcol.lstrip("#")
+    rgb = [int(c[i:i + 2], 16) for i in (0, 2, 4)]
+    return "#%02X%02X%02X" % tuple(int(v + (255 - v) * frac) for v in rgb)
+
+
+def sample_group(sample):
+    """Genotype-by-infection group of a sample id, from the id alone."""
+    g = "MeiP26" if "Mei" in str(sample) else "OreR"
+    i = "uninf" if "uninf" in str(sample) else "wMel"
+    return f"{g}_{i}"
+
+
+def sample_colours(samples):
+    """Return (colour_by_sample, samples_ordered_by_group).
+
+    Use the returned order for axes and legends so the same library is the
+    same colour and sits in the same place in every figure.
+    """
+    uniq = list(dict.fromkeys(str(s) for s in samples))
+    order = [s for g in GROUP_ORDER for s in sorted(
+        {x for x in uniq if sample_group(x) == g})]
+    out = {}
+    for g in GROUP_ORDER:
+        mem = [s for s in order if sample_group(s) == g]
+        for k, s in enumerate(mem):
+            out[s] = _lighten(GROUP_BASE[g], 0.46 * k / max(1, len(mem) - 1))
+    return out, order
+
+
+def sample_label(sample):
+    return str(sample).replace("_10x", "").replace("_", " ")
+
 COLUMN = 3.35   # inches, 85 mm single column
 WIDE = 6.85     # inches, 174 mm double column
 
