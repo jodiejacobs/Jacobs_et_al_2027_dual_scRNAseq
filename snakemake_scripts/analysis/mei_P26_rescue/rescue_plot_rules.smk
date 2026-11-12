@@ -159,6 +159,7 @@ rule rescue_plots_all:
         f"{FIG_DIR}/fig1_umap_annotation.pdf",
         f"{FIG_DIR}/fig1_composition_by_sample.pdf",
         f"{FIG_DIR}/fig1_wmel_capture_summary.pdf",
+        f"{FIG_DIR}/fig2_signal_specificity.pdf",
 
 
 rule rescue_plot_umap_annotation:
@@ -235,6 +236,42 @@ rule rescue_plot_gene_group_summary:
         {SCANPY_ENV}/bin/python {input.script} \
             --stats_dir {params.stats_dir} --samples {params.samples} \
             --outdir {params.outdir} {params.exclude_flag}
+        """
+
+
+rule rescue_plot_figure2:
+    """Figure 2 composed from several tables, not one table per figure.
+
+    Both claims here are sameness claims: titer separates infection in every
+    cell type, and sequence adds nothing to expression in predicting which
+    loci are detected. Bar charts show sameness badly, so every panel is a
+    distribution or a point cloud. The per-table scripts stay as they are and
+    feed the supplement.
+    """
+    input:
+        counts = f"{RESCUE_DIR}/pseudobulk/counts_labeled.h5ad",
+        separation = f"{RESCUE_DIR}/uninfected_floor/titer_separation.tsv",
+        gene_detection = f"{RESCUE_DIR}/detection_bias/wmel_gene_detection.tsv.gz",
+        script = f"{PLOT_SCRIPTS}/plot_figure2.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        pdf = f"{FIG_DIR}/fig2_signal_specificity.pdf",
+        png = f"{FIG_DIR}/fig2_signal_specificity.png",
+    params:
+        outdir = FIG_DIR,
+        quantile = config.get("rescue_floor_quantile", 0.99),
+    log: "logs/rescue/plots/fig2_signal_specificity.log"
+    resources:
+        slurm_partition = "short", mem_mb = 32000, runtime = hms_to_minutes("0:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --counts {input.counts} --separation {input.separation} \
+            --gene_detection {input.gene_detection} \
+            --floor_quantile {params.quantile} --outdir {params.outdir}
         """
 
 
