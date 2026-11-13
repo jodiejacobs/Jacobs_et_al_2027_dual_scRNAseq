@@ -53,6 +53,10 @@ def parse_args():
     p.add_argument("--fdr", type=float, default=0.05)
     p.add_argument("--drop_labels", default=",".join(LOW_CONFIDENCE))
     p.add_argument("--version", choices=("robust", "all", "both"), default="both")
+    p.add_argument("--fit_label", default=None,
+                   help="named in the figure's subtitle, so the moderated and "
+                        "unmoderated fits cannot be mistaken for each other. "
+                        "Inferred from the input filename when not given")
     return p.parse_args()
 
 
@@ -113,7 +117,8 @@ def build(d, args, suffix, note_txt):
     ax.set_title("All contrasts (boxed = the rescue test)", pad=4)
     panel_letter(ax, "B", dx=-0.05)
 
-    fig.suptitle(note_txt, y=1.03, fontsize=6.5, color=COL["grey"])
+    fig.suptitle(f"{note_txt} · {args.fit_label}", y=1.03, fontsize=6.5,
+                 color=COL["grey"])
     save(fig, args.outdir, f"{args.stem}_{suffix}")
 
     if "interaction" in fdr.columns:
@@ -137,6 +142,13 @@ def main():
     drop = {s.strip() for s in args.drop_labels.split(",") if s.strip()}
     d = d[~d["tissue"].isin(drop)]
     print(f"Labels excluded as low-confidence: {sorted(drop) or 'none'}")
+    # The two tables have identical columns and very different standard errors,
+    # so the figure has to say which fit produced it.
+    if args.fit_label is None:
+        args.fit_label = ("propeller, variance moderated across cell types"
+                          if "propeller" in os.path.basename(args.input)
+                          else "OLS per cell type, 4 residual df, unmoderated")
+    print(f"Fit: {args.fit_label}")
     versions = ["robust", "all"] if args.version == "both" else [args.version]
     for v in versions:
         if v == "robust":

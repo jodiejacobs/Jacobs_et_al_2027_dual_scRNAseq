@@ -14,6 +14,13 @@ With 2 replicates per group there are 4 residual df per tissue.
 
 Proportions use the cells that passed --min_confidence in 01_build_pseudobulk,
 so low-confidence labels are excluded from both numerator and denominator.
+
+04b_propeller.R fits the same design and contrasts on the same counts with
+limma's empirical Bayes moderation, which is what propeller does and what this
+script does not. Neither is strictly better: moderation helps a cell type whose
+4-df variance estimate came out too large and hurts one whose estimate came out
+too small. Run both, and decide which is the primary analysis before reading
+either.
 """
 import argparse
 import os

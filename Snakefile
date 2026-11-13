@@ -1200,6 +1200,36 @@ rule rescue_composition:
             --pseudobulk_dir {params.indir} --outdir {params.outdir}
         """
 
+rule rescue_composition_propeller:
+    # The moderated version of rescue_composition. 04_cell_composition.py fits
+    # each cell type's logit proportion by OLS on 4 residual df; propeller fits
+    # the same design and contrasts but borrows variance across cell types with
+    # limma's empirical Bayes step, which is where the extra power comes from.
+    # Both tables are kept so the difference between them stays visible.
+    #
+    # composition_cell_counts.tsv is written by rescue_composition but is not
+    # one of its declared outputs, so the dependency is on the declared table
+    # and the counts path is passed as a param. Declaring it instead would
+    # change that rule's outputs and rerun everything downstream of it.
+    input:
+        tests = rules.rescue_composition.output,
+    output:
+        f"{RESCUE_DIR}/composition/composition_tests_propeller.tsv",
+    params:
+        counts = f"{RESCUE_DIR}/composition/composition_cell_counts.tsv",
+        outdir = f"{RESCUE_DIR}/composition",
+    log: "logs/rescue/composition_propeller.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 32000, runtime = hms_to_minutes("0:20:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {EDGER_ENV}
+        {EDGER_ENV}/bin/Rscript {RESCUE_SCRIPTS}/04b_propeller.R \
+            --counts {params.counts} --outdir {params.outdir}
+        """
+
 rule rescue_summary:
     input:
         host = rules.rescue_de.output.host,
@@ -1696,6 +1726,9 @@ _V = {  # two versions: <stem>_robust and <stem>_all
     "fig3_composition_tests": (
         "plot_composition_tests.py",
         f"{RESCUE_DIR}/composition/composition_tests.tsv", ""),
+    "fig3_composition_tests_propeller": (
+        "plot_composition_tests.py",
+        f"{RESCUE_DIR}/composition/composition_tests_propeller.tsv", ""),
     "fig3_titer_by_sample_tissue": (
         "plot_titer_by_sample_tissue.py",
         f"{RESCUE_DIR}/titer/titer_by_sample_tissue.tsv", ""),
