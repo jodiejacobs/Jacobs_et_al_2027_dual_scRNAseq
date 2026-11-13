@@ -79,30 +79,44 @@ def build(d, args, suffix, note_txt):
         off = (i - (n - 1) / 2) * (0.74 / n)
         ax.errorbar(s["estimate"], y + off, xerr=1.96 * s["se"], fmt="none",
                     ecolor=COL["lightgrey"], elinewidth=0.8, capsize=1.2, zorder=2)
-        sig = s["pvalue"] < args.alpha
+        sig = s[args.pcol] < args.alpha
         ax.scatter(s["estimate"], y + off, s=22, zorder=3,
                    color=[CCOL.get(c, COL["grey"]) if k else "white"
                           for k in sig.fillna(False)],
                    edgecolors=CCOL.get(c, COL["grey"]), linewidths=0.8,
                    label=NICE.get(c, c))
         for yi, (_, r) in zip(y, s.iterrows()):
-            st = fdr_stars(r["pvalue"])
+            st = fdr_stars(r[args.pcol])
             if st:
                 ax.text(r["estimate"], yi + off + 0.10, st, ha="center",
                         fontsize=5.5, color=CCOL.get(c, COL["grey"]))
     ax.axvline(0, color=COL["black"], lw=0.7)
-    ax.set_yticks(y, [str(m).replace("_", " ") for m in mets], fontsize=6.5)
+    # A metric whose logit had to clip a whole group is estimated but not
+    # tested, so its point carries no interval and must not read as a null
+    # result. Daggering the label is the only thing distinguishing it from a
+    # metric that was tested and came out flat.
+    clipped = set()
+    if "clipped_groups" in d.columns:
+        clipped = set(d.loc[d["clipped_groups"].astype(str).str.strip().ne("")
+                            & d["clipped_groups"].notna(), "metric"])
+    ax.set_yticks(y, [str(m).replace("_", " ") + (" †" if m in clipped else "")
+                      for m in mets], fontsize=6.5)
     ax.set_xlabel("contrast estimate (logit where a fraction)")
     ax.set_title("Germline contrasts", pad=4)
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.02), ncol=min(n, 3),
               fontsize=6)
     tail = f"; residual df = {df}, so intervals are wide" if df is not None else ""
-    note(ax, f"filled points p < {args.alpha}; bars 95% CI{tail}", y=-0.10)
+    lab = "FDR" if args.pcol == "fdr" else "p"
+    cap = f"filled points {lab} < {args.alpha}; bars 95% CI{tail}"
+    if clipped:
+        cap += ("\n† a whole group sits at 0 or 1, so the logit is set by the "
+                "clip and the metric is estimated but not tested")
+    note(ax, cap, y=-0.10)
     panel_letter(ax, "A", dx=-0.34, dy=1.12)
     save(fig, args.outdir, f"{args.stem}_{suffix}")
 
-    cols = [c for c in ("metric", "contrast", "estimate", "se", "t", "pvalue", "df")
-            if c in d.columns]
+    cols = [c for c in ("metric", "contrast", "estimate", "se", "t", "pvalue",
+                        "fdr", "df", "clipped_groups") if c in d.columns]
     print(d[cols].round(4).to_string(index=False))
     if df is not None and df <= 4:
         print(f"\nResidual df = {df}. A contrast near p = {args.alpha} here is a "
@@ -114,14 +128,22 @@ def main():
     args = parse_args()
     apply_style()
     d = pd.read_csv(args.input, sep="\t")
-    for c in ("estimate", "se", "t", "pvalue", "df"):
+    for c in ("estimate", "se", "t", "pvalue", "fdr", "df"):
         if c in d.columns:
             d[c] = pd.to_numeric(d[c], errors="coerce")
+    # These tables carry five contrasts over up to thirteen metrics, so the raw
+    # p is the wrong thing to colour by. Fall back to it only for a table
+    # written before 07_germline.py gained the correction, and say so.
+    args.pcol = ("fdr" if "fdr" in d.columns and d["fdr"].notna().any()
+                 else "pvalue")
+    if args.pcol == "pvalue":
+        print("No fdr column in this table, so significance below is uncorrected "
+              "across metrics. Rerun 07_germline.py to get BH-corrected values.")
     versions = ["robust", "all"] if args.version == "both" else [args.version]
     for v in versions:
         if v == "robust":
             keep = set(d.loc[(d["contrast"] == "interaction")
-                             & (d["pvalue"] < args.alpha), "metric"])
+                             & (d[args.pcol] < args.alpha), "metric"])
             sub = d[d["metric"].isin(keep)]
             txt = "metrics with a significant interaction, the formal rescue test"
         else:

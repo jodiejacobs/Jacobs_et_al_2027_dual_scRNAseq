@@ -14,6 +14,11 @@ moves the Mei-P26 germline toward OreR.
    tested on logit fractions with OLS ~ 0 + group over the 8 samples (residual
    df = 4): genotype_in_uninf, genotype_in_wMel, infection_in_OreR,
    infection_in_MeiP26, interaction. Samples, not cells, are the replicates.
+   Both test tables carry a BH 'fdr' column, corrected within contrast across
+   metrics, and a 'clipped_groups' column. A metric with a group entirely at 0
+   or 1 cannot be put on a logit scale, so it is estimated but not tested, and
+   its se, t and p are blank: see clipped_groups() for why a clipped group
+   otherwise manufactures significance.
 3. Differentiation: germline cells are re-embedded (HVG, PCA, Leiden, UMAP)
    and ordered by diffusion pseudotime rooted in the cell with the highest
    early-germline score (bam, bgcn, Dad). Per-sample summaries (median
@@ -40,6 +45,7 @@ import pandas as pd
 import scanpy as sc
 import scipy.sparse as sp
 from scipy import stats
+from statsmodels.stats.multitest import multipletests
 
 HOST_PREFIX = "FB"
 WMEL_PREFIX = ("WD", "GQX67")
@@ -121,14 +127,63 @@ def per_sample_table(obs, value_cols):
     return s.reset_index()
 
 
+def clipped_groups(values, groups, eps=1e-4):
+    """Groups whose every sample sits at a bound the logit cannot represent.
+
+    A proportion of exactly 0 or 1 has no logit, so logit() clips it to eps.
+    Every sample in such a group then carries the same invented number: the
+    group contributes no variance, its contrasts are set by eps rather than by
+    data, and the pooled residual variance is deflated for every other
+    contrast on that metric. prop_c4 is the worked example. All four OreR
+    samples hold exactly zero cells in cluster 4, which made
+    infection_in_OreR come out as exactly 0.000 with p = 1.0000, made the
+    interaction numerically identical to infection_in_MeiP26, and gave
+    genotype_in_uninf a t of 68 against a standard error no real variation
+    produced.
+
+    Such a metric is still estimated, because "no wild-type cell is in this
+    cluster" is worth recording, but it is not tested. The descriptive version
+    belongs in germline_subclusters.tsv.
+    """
+    v = np.asarray(values, float)
+    g = np.asarray(groups)
+    return [str(k) for k in pd.unique(g)
+            if ((g == k).any()
+                and (np.all(v[g == k] <= 0) or np.all(v[g == k] >= 1)))]
+
+
+def add_fdr(df):
+    """BH within contrast, across metrics, as 04_cell_composition.py does.
+
+    Within contrast rather than over the whole table: the five contrasts
+    answer different questions and are not a family. Suppressed rows carry no
+    p-value and are left out of the correction rather than counted in it.
+    """
+    df = df.copy()
+    df["fdr"] = np.nan
+    for _, idx in df.groupby("contrast").groups.items():
+        p = df.loc[idx, "pvalue"]
+        ok = p.notna()
+        if ok.any():
+            df.loc[p.index[ok], "fdr"] = multipletests(p[ok], method="fdr_bh")[1]
+    return df
+
+
 def test_metrics(samp, metrics, transform):
     out = []
     for m in metrics:
+        bad = clipped_groups(samp[m], samp["group"]) if transform is logit else []
         v = transform(samp[m]) if transform else samp[m]
         t = sample_test(v, samp["group"])
+        if bad:
+            t[["se", "t", "pvalue"]] = np.nan
+            print(f"  {m}: {', '.join(bad)} entirely at the bound, so the "
+                  "estimate is set by eps and not by data. Estimate kept, test "
+                  "suppressed.")
         t.insert(0, "metric", m)
+        t["clipped_groups"] = ",".join(bad)
         out.append(t)
-    return pd.concat(out)
+    return pd.concat(out, ignore_index=True)
 
 
 def write_pseudobulk(full, germ_obs, outdir):
@@ -201,11 +256,11 @@ def main():
     comp = comp.sort_values(["group", "replicate"])
     comp.to_csv(os.path.join(args.outdir, "germline_composition_by_sample.tsv"), sep="\t", index=False)
     fmetrics = ["frac_of_all", "frac_of_not_artefact", "frac_of_germ_plus_tj_soma"]
-    ctest = test_metrics(comp, fmetrics, logit)
+    ctest = add_fdr(test_metrics(comp, fmetrics, logit))
     ctest.to_csv(os.path.join(args.outdir, "germline_composition_tests.tsv"), sep="\t", index=False)
     print("\nGermline fraction by sample:")
     print(comp[["sample", "group", "n_germline"] + fmetrics].round(4).to_string(index=False))
-    print("\nTests on logit(fraction), OLS over samples (df=4):")
+    print("\nTests on logit(fraction), OLS over samples (df=4), BH within contrast:")
     print(ctest.round(4).to_string(index=False))
 
     # ---- 3. differentiation within germline ----
@@ -253,14 +308,26 @@ def main():
     samp["median_pt"] = gobs.groupby("sample", observed=True)["pt"].median().reindex(samp["sample"]).values
     samp = samp.merge(props, left_on="sample", right_index=True).sort_values(["group", "replicate"])
     samp.to_csv(os.path.join(args.outdir, "germline_state_by_sample.tsv"), sep="\t", index=False)
-    stest = pd.concat([test_metrics(samp, ["median_pt", "early_score", "late_score"], None),
-                       test_metrics(samp, ["early_by_pt"] + list(props.columns), logit)])
+    stest = add_fdr(pd.concat(
+        [test_metrics(samp, ["median_pt", "early_score", "late_score"], None),
+         test_metrics(samp, ["early_by_pt"] + list(props.columns), logit)],
+        ignore_index=True))
     stest.to_csv(os.path.join(args.outdir, "germline_state_tests.tsv"), sep="\t", index=False)
     print("\nGermline state by sample:")
     print(samp.drop(columns=["pt"]).round(3).to_string(index=False))
     print("\nState tests (interaction + infection_in_MeiP26 rows):")
     print(stest[stest["contrast"].isin(["infection_in_MeiP26", "infection_in_OreR", "interaction"])]
           .round(4).to_string(index=False))
+    # The rescue claim stands or falls on the interaction, so say outright
+    # whether it survives correction instead of leaving it to be read off.
+    si = stest[(stest["contrast"] == "interaction") & (stest["fdr"] < 0.05)]
+    if len(si):
+        print(f"\nInteraction at FDR < 0.05: {', '.join(si['metric'])}")
+    else:
+        print("\nNo germline state metric has an interaction at FDR < 0.05. The "
+              "differentiation block is real and large, but these data do not "
+              "show wMel relieving it. Report that, and do not let a composition "
+              "result stand in for it.")
 
     # ---- 4. germline pseudobulks ----
     keep = (g.obs.groupby(["germ_cluster", "sample"], observed=True).size().unstack(fill_value=0)
@@ -279,8 +346,9 @@ def main():
             v = comp.loc[comp["group"] == k, m]
             ax.scatter(np.full(len(v), i) + np.array([-0.06, 0.06])[: len(v)], v * 100, c=COLORS[k], s=40)
         ax.set_xticks(range(4), GROUPS, rotation=30, fontsize=7)
-        p_int = ctest.query("metric == @m and contrast == 'interaction'")["pvalue"].iloc[0]
-        ax.set_title(f"germline % ({m.replace('frac_of_', 'of ')})\ninteraction p = {p_int:.3g}", fontsize=8)
+        q = ctest.query("metric == @m and contrast == 'interaction'")["fdr"].iloc[0]
+        lab = "not estimable" if not np.isfinite(q) else f"interaction FDR = {q:.3g}"
+        ax.set_title(f"germline % ({m.replace('frac_of_', 'of ')})\n{lab}", fontsize=8)
         ax.set_ylim(bottom=0)
     fig.tight_layout()
     for ext in ("pdf", "png"):

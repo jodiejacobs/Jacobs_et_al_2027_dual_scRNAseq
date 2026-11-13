@@ -1729,6 +1729,10 @@ _V = {  # two versions: <stem>_robust and <stem>_all
     "fig3_composition_tests_propeller": (
         "plot_composition_tests.py",
         f"{RESCUE_DIR}/composition/composition_tests_propeller.tsv", ""),
+    "fig4_interaction_volcano": (
+        "plot_interaction_volcano.py",
+        f"{RESCUE_DIR}/de/host_de_all.tsv.gz",
+        f"--null {RESCUE_DIR}/rescue_null/rescue_null_summary.tsv"),
     "fig3_titer_by_sample_tissue": (
         "plot_titer_by_sample_tissue.py",
         f"{RESCUE_DIR}/titer/titer_by_sample_tissue.tsv", ""),
@@ -1753,6 +1757,15 @@ _V = {  # two versions: <stem>_robust and <stem>_all
     "fig5_rescue_categories": (
         "plot_rescue_category_counts.py",
         f"{RESCUE_DIR}/summary/rescue_category_counts.tsv", ""),
+    "fig5_rescue_diverging": (
+        "plot_rescue_diverging.py",
+        f"{RESCUE_DIR}/summary/rescue_category_counts.tsv",
+        f"--null {RESCUE_DIR}/rescue_null/rescue_null_permutations.tsv"),
+    "fig5_rescue_fraction": (
+        "plot_rescue_fraction_distribution.py",
+        f"{RESCUE_DIR}/summary/rescue_genes.tsv",
+        f"--genes {RESCUE_DIR}/summary/rescue_genes.tsv "
+        f"--null {RESCUE_DIR}/rescue_null/rescue_null_permutations.tsv"),
     "fig5_rescue_null": (
         "plot_rescue_null_summary.py",
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv", ""),
@@ -1802,6 +1815,10 @@ _S = {  # one figure: the table has nothing meaningful to filter on
     "fig1_wmel_breadth": (
         "plot_wmel_breadth.py",
         f"{RESCUE_DIR}/detection_bias/wmel_breadth.tsv", ""),
+    "fig4_meip26_expression": (
+        "plot_meip26_expression.py",
+        f"{RESCUE_DIR}/de/host_de_all.tsv.gz",
+        f"--logcpm_dir {RESCUE_DIR}/de"),
     # --total_loci lets the script tell complete recovery (the curve reached
     # every annotated locus) from an unsaturated one (it ran out of cells).
     "fig1_wmel_rarefaction": (
@@ -1893,6 +1910,43 @@ rule rescue_plot_umap_annotation:
 
 
 
+
+rule rescue_plot_umap_gene:
+    """mei-P26 on the atlas UMAP, one panel per genotype by infection group.
+
+    Reads the integrated AnnData for the same reason rescue_plot_umap_annotation
+    does: obsm["X_umap_atlas"] exists nowhere else. The script refuses to run
+    without --exclude_cells, because that object is written before
+    06_label_qc.py calls debris and still holds every barcode, so an
+    unfiltered version would not describe the same cells as the rest of the
+    paper. If RESCUE_DEBRIS is empty the script fails with that message rather
+    than quietly including debris.
+    """
+    input:
+        integrated = "results/integrated/integrated.h5ad",
+        exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
+        script = f"{PLOT_SCRIPTS}/plot_umap_gene.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        f"{FIG_DIR}/fig4_umap_meip26.pdf",
+    params:
+        outdir = FIG_DIR,
+        exclude_flag = f"--exclude_cells {RESCUE_DEBRIS}" if RESCUE_DEBRIS else "",
+        gene = config.get("rescue_umap_gene", "FBgn0026206"),
+        gene_label = config.get("rescue_umap_gene_label", "mei-P26"),
+    log: "logs/rescue/plots/fig4_umap_meip26.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --integrated {input.integrated} --outdir {params.outdir} \
+            --gene {params.gene} --gene_label {params.gene_label} \
+            {params.exclude_flag}
+        """
 
 rule rescue_plot_gene_group_summary:
     """Figure 1: wMel capture across all samples, as one panel.
