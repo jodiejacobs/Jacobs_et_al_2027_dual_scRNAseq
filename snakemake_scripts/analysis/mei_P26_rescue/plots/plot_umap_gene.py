@@ -77,8 +77,16 @@ def parse_args():
     p.add_argument("--sample_col", default="source_file",
                    help="used to derive the genotype by infection group when "
                         "genotype/infection_status are not both in obs")
+    p.add_argument("--expression", default=None,
+                   help="h5ad to read expression from, when the integrated "
+                        "object does not carry the gene. integrated.h5ad is "
+                        "subset to the highly variable genes during "
+                        "integration, so most genes are absent from it; "
+                        "results/rescue/pseudobulk/counts_labeled.h5ad keeps "
+                        "all of them. Cells become the intersection of the "
+                        "two objects, matched on obs_names")
     p.add_argument("--layer", default=None,
-                   help="obs layer to read expression from; default .X")
+                   help="layer to read expression from; default .X")
     p.add_argument("--normalize", choices=("auto", "none", "lognorm"),
                    default="auto")
     p.add_argument("--vmax_quantile", type=float, default=0.995,
@@ -103,7 +111,7 @@ def load(args):
             "if you deliberately want the unfiltered version.")
     if args.exclude_cells and not os.path.exists(args.exclude_cells):
         raise SystemExit(f"--exclude_cells {args.exclude_cells} does not exist")
-    a = ad.read_h5ad(args.integrated)
+    a = ad.read_h5ad(args.integrated, backed="r")
     n0 = a.n_obs
     if args.exclude_cells:
         d = pd.read_csv(args.exclude_cells, sep="\t")
@@ -116,45 +124,86 @@ def load(args):
                 f"object ({n0:,} cells). Either it is already debris-free, in "
                 "which case drop --exclude_cells, or the obs_name formats "
                 "differ. Compare a few names on each side before rerunning.")
-        a = a[keep].copy()
+        a = a[keep]
     print(f"{n0:,} cells, {n0 - a.n_obs:,} debris removed, {a.n_obs:,} kept")
 
     if args.umap_key not in a.obsm:
         raise SystemExit(f"{args.umap_key} not in obsm ({list(a.obsm.keys())}); "
                          "this is not the integrated object")
     xy = np.asarray(a.obsm[args.umap_key])[:, :2]
+    obs = a.obs.copy()
+    obs_names = pd.Index(a.obs_names.astype(str))
+
+    # Where the expression comes from. integrated.h5ad is cut down to the
+    # highly variable genes when the integration runs, so most genes are
+    # simply not in it and a lookup there fails for reasons that have nothing
+    # to do with the gene being absent from the data. --expression points at
+    # an object that kept every gene, usually
+    # rescue/pseudobulk/counts_labeled.h5ad, and the cells become the
+    # intersection of the two.
+    e = a
+    if args.expression:
+        if not os.path.exists(args.expression):
+            raise SystemExit(f"--expression {args.expression} does not exist")
+        e = ad.read_h5ad(args.expression, backed="r")
+        en = pd.Index(e.obs_names.astype(str))
+        common = obs_names.intersection(en)
+        if len(common) < 0.05 * min(len(obs_names), len(en)):
+            raise SystemExit(
+                f"only {len(common):,} barcodes are shared between the two "
+                f"objects ({len(obs_names):,} with coordinates, {len(en):,} "
+                "with expression). The obs_name formats probably differ; "
+                f"compare {list(obs_names[:2])} against {list(en[:2])}.")
+        print(f"expression from {os.path.basename(args.expression)}: "
+              f"{len(en):,} cells x {e.n_vars:,} genes; "
+              f"{len(common):,} shared with the coordinates")
+        ia = obs_names.get_indexer(common)
+        xy = xy[ia]
+        obs = obs.iloc[ia]
+        e = e[en.get_indexer(common)]
+        obs_names = common
 
     # The gene, by id or by whatever symbol column var carries.
     name = args.gene
-    if name not in a.var_names:
+    if name not in e.var_names:
         for c in ("symbol", "gene_symbol", "gene_name", "Symbol"):
-            if c in a.var.columns:
-                hit = a.var.index[a.var[c].astype(str) == name]
+            if c in e.var.columns:
+                hit = e.var.index[e.var[c].astype(str) == name]
                 if len(hit):
                     name = hit[0]
                     break
-    if name not in a.var_names:
-        raise SystemExit(f"{args.gene} is not in var_names and no symbol "
-                         f"column matched it. var has {a.n_vars:,} entries, "
-                         f"columns {list(a.var.columns)[:8]}")
+    if name not in e.var_names:
+        where = args.expression or args.integrated
+        extra = ("" if args.expression else
+                 "\nintegrated.h5ad is usually subset to the highly variable "
+                 "genes, so most genes are missing from it. Pass --expression "
+                 "results/rescue/pseudobulk/counts_labeled.h5ad, which keeps "
+                 "every gene.")
+        raise SystemExit(f"{args.gene} is not in var_names of "
+                         f"{os.path.basename(where)} and no symbol column "
+                         f"matched it. var has {e.n_vars:,} entries, columns "
+                         f"{list(e.var.columns)[:8]}.{extra}")
 
-    src = a.layers[args.layer] if args.layer else a.X
-    v = src[:, a.var_names.get_loc(name)]
-    v = np.asarray(v.todense()).ravel() if sp.issparse(v) else np.asarray(v).ravel()
+    def dense(m):
+        return (np.asarray(m.todense()) if sp.issparse(m)
+                else np.asarray(m))
+
+    sub = e[:, [e.var_names.get_loc(name)]]
+    v = dense(sub.layers[args.layer] if args.layer else sub.X).ravel()
 
     mode = args.normalize
     if mode == "auto":
         # Judge the matrix, not this one gene: a lowly expressed gene is all
         # small integers under any encoding, and a magnitude threshold would
         # misread it. Counts are non-negative integers; normalised values are
-        # not integers and scaled values go negative. A random block is enough
-        # and avoids pulling the whole matrix into memory.
+        # not integers and scaled values go negative. A random block is enough,
+        # and going through AnnData indexing keeps this working on a
+        # backed object, where X cannot be sliced twice directly.
         rng = np.random.default_rng(0)
-        rows = rng.choice(src.shape[0], min(2000, src.shape[0]), replace=False)
-        cols = rng.choice(src.shape[1], min(200, src.shape[1]), replace=False)
-        blk = src[np.sort(rows)][:, np.sort(cols)]
-        blk = np.asarray(blk.todense()).ravel() if sp.issparse(blk) \
-            else np.asarray(blk).ravel()
+        rows = np.sort(rng.choice(e.n_obs, min(2000, e.n_obs), replace=False))
+        cols = np.sort(rng.choice(e.n_vars, min(200, e.n_vars), replace=False))
+        blk_ad = e[rows][:, cols]
+        blk = dense(blk_ad.layers[args.layer] if args.layer else blk_ad.X).ravel()
         blk = blk[np.isfinite(blk)]
         looks_counts = bool(len(blk) and blk.min() >= 0
                             and np.array_equal(blk, np.round(blk)))
@@ -162,16 +211,35 @@ def load(args):
         what = "raw counts" if looks_counts else "already transformed values"
         print(f"--normalize auto: sampled {len(blk):,} entries, matrix looks "
               f"like {what}, so using {mode}")
+
+    eobs = e.obs
     if mode == "lognorm":
-        tot = np.asarray(src.sum(axis=1)).ravel()
-        tot[tot == 0] = 1.0
-        v = np.log1p(v / tot * 1e4)
+        # Per-cell totals. Summing the whole matrix on a backed object reads
+        # every byte off disk, so use a stored depth column when the object
+        # carries one. counts_labeled.h5ad has host_umis, which is exactly
+        # this quantity for the host side.
+        depth = None
+        for c in ("host_umis", "total_counts", "n_counts"):
+            if c in eobs.columns:
+                depth = pd.to_numeric(eobs[c], errors="coerce").to_numpy(float)
+                print(f"per-cell depth from obs['{c}']")
+                break
+        if depth is None:
+            print("no depth column in obs, summing the matrix (slow on a "
+                  "backed object)")
+            depth = np.asarray(dense(e.X).sum(axis=1)).ravel()
+        depth = np.where(np.isfinite(depth) & (depth > 0), depth, 1.0)
+        v = np.log1p(v / depth * 1e4)
         unit = "log1p(CP10K)"
     else:
         unit = "value in the object"
 
-    # Group: prefer the explicit columns, fall back to the sample id.
-    o = a.obs
+    # Group: prefer the explicit columns, fall back to the sample id. Look in
+    # the expression object first when there is one, since it is the object
+    # the per-cell values came from.
+    o = eobs if (args.expression and
+                 ({"genotype", "infection_status"} <= set(eobs.columns)
+                  or args.sample_col in eobs.columns)) else obs
     if {"genotype", "infection_status"} <= set(o.columns):
         g = (o["genotype"].astype(str).str.replace("-", "", regex=False) + "_"
              + o["infection_status"].astype(str))

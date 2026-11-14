@@ -1924,6 +1924,9 @@ rule rescue_plot_umap_gene:
     """
     input:
         integrated = "results/integrated/integrated.h5ad",
+        # integrated.h5ad is cut to the highly variable genes, so most genes
+        # are not in it. Coordinates come from there, expression from here.
+        expression = f"{RESCUE_DIR}/pseudobulk/counts_labeled.h5ad",
         exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
         script = f"{PLOT_SCRIPTS}/plot_umap_gene.py",
         style = f"{PLOT_SCRIPTS}/figstyle.py",
@@ -1943,7 +1946,8 @@ rule rescue_plot_umap_gene:
         source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
         conda activate {SCANPY_ENV}
         {SCANPY_ENV}/bin/python {input.script} \
-            --integrated {input.integrated} --outdir {params.outdir} \
+            --integrated {input.integrated} \
+            --expression {input.expression} --outdir {params.outdir} \
             --gene {params.gene} --gene_label {params.gene_label} \
             {params.exclude_flag}
         """
