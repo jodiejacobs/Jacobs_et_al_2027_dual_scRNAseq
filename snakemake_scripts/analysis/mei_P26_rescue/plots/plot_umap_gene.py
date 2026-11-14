@@ -111,28 +111,34 @@ def load(args):
             "if you deliberately want the unfiltered version.")
     if args.exclude_cells and not os.path.exists(args.exclude_cells):
         raise SystemExit(f"--exclude_cells {args.exclude_cells} does not exist")
+    # A backed AnnData cannot be indexed twice: a view of a view raises. So
+    # nothing here slices the object. Row positions are carried as arrays and
+    # applied to whatever a single index operation returns.
     a = ad.read_h5ad(args.integrated, backed="r")
     n0 = a.n_obs
+    a_names = pd.Index(a.obs_names.astype(str))
+    arows = np.arange(n0)
     if args.exclude_cells:
         d = pd.read_csv(args.exclude_cells, sep="\t")
         col = "obs_name" if "obs_name" in d.columns else d.columns[0]
         names = set(d[col].astype(str))
-        keep = ~a.obs_names.isin(names)
+        keep = ~a_names.isin(names)
         if int((~keep).sum()) == 0:
             raise SystemExit(
                 f"none of the {len(names):,} excluded barcodes are in this "
                 f"object ({n0:,} cells). Either it is already debris-free, in "
                 "which case drop --exclude_cells, or the obs_name formats "
                 "differ. Compare a few names on each side before rerunning.")
-        a = a[keep]
-    print(f"{n0:,} cells, {n0 - a.n_obs:,} debris removed, {a.n_obs:,} kept")
+        arows = np.flatnonzero(keep)
+    print(f"{n0:,} cells, {n0 - len(arows):,} debris removed, "
+          f"{len(arows):,} kept")
 
     if args.umap_key not in a.obsm:
         raise SystemExit(f"{args.umap_key} not in obsm ({list(a.obsm.keys())}); "
                          "this is not the integrated object")
-    xy = np.asarray(a.obsm[args.umap_key])[:, :2]
-    obs = a.obs.copy()
-    obs_names = pd.Index(a.obs_names.astype(str))
+    xy = np.asarray(a.obsm[args.umap_key])[arows, :2]
+    obs = a.obs.iloc[arows]
+    obs_names = a_names[arows]
 
     # Where the expression comes from. integrated.h5ad is cut down to the
     # highly variable genes when the integration runs, so most genes are
@@ -141,7 +147,7 @@ def load(args):
     # an object that kept every gene, usually
     # rescue/pseudobulk/counts_labeled.h5ad, and the cells become the
     # intersection of the two.
-    e = a
+    e, erows = a, arows
     if args.expression:
         if not os.path.exists(args.expression):
             raise SystemExit(f"--expression {args.expression} does not exist")
@@ -160,7 +166,7 @@ def load(args):
         ia = obs_names.get_indexer(common)
         xy = xy[ia]
         obs = obs.iloc[ia]
-        e = e[en.get_indexer(common)]
+        erows = en.get_indexer(common)      # positions, not a view
         obs_names = common
 
     # The gene, by id or by whatever symbol column var carries.
@@ -188,8 +194,10 @@ def load(args):
         return (np.asarray(m.todense()) if sp.issparse(m)
                 else np.asarray(m))
 
-    sub = e[:, [e.var_names.get_loc(name)]]
-    v = dense(sub.layers[args.layer] if args.layer else sub.X).ravel()
+    # One index operation on the backed object, then select rows in memory.
+    gi = e.var_names.get_loc(name)
+    sub = e[:, [gi]]
+    v = dense(sub.layers[args.layer] if args.layer else sub.X).ravel()[erows]
 
     mode = args.normalize
     if mode == "auto":
@@ -200,9 +208,9 @@ def load(args):
         # and going through AnnData indexing keeps this working on a
         # backed object, where X cannot be sliced twice directly.
         rng = np.random.default_rng(0)
-        rows = np.sort(rng.choice(e.n_obs, min(2000, e.n_obs), replace=False))
+        rows = np.sort(rng.choice(erows, min(2000, len(erows)), replace=False))
         cols = np.sort(rng.choice(e.n_vars, min(200, e.n_vars), replace=False))
-        blk_ad = e[rows][:, cols]
+        blk_ad = e[rows, cols]              # one index, not a view of a view
         blk = dense(blk_ad.layers[args.layer] if args.layer else blk_ad.X).ravel()
         blk = blk[np.isfinite(blk)]
         looks_counts = bool(len(blk) and blk.min() >= 0
@@ -212,7 +220,7 @@ def load(args):
         print(f"--normalize auto: sampled {len(blk):,} entries, matrix looks "
               f"like {what}, so using {mode}")
 
-    eobs = e.obs
+    eobs = e.obs.iloc[erows]
     if mode == "lognorm":
         # Per-cell totals. Summing the whole matrix on a backed object reads
         # every byte off disk, so use a stored depth column when the object
@@ -227,7 +235,7 @@ def load(args):
         if depth is None:
             print("no depth column in obs, summing the matrix (slow on a "
                   "backed object)")
-            depth = np.asarray(dense(e.X).sum(axis=1)).ravel()
+            depth = np.asarray(dense(e[erows].X).sum(axis=1)).ravel()
         depth = np.where(np.isfinite(depth) & (depth > 0), depth, 1.0)
         v = np.log1p(v / depth * 1e4)
         unit = "log1p(CP10K)"
