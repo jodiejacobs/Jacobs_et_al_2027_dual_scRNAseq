@@ -841,7 +841,7 @@ rule integrate:
 ##################################################################
 # Gene program and pathway analysis (debris-free integrated object)
 #   snakemake nmf_all        NMF programs + titer / condition / annotation
-#   snakemake cluster_gsea   one-vs-rest GSEA per cell type
+#   (cluster_gsea, one-vs-rest GSEA, was replaced by rescue_host_gsea)
 # Input is integrated_clean.h5ad from rule rescue_integrated_clean.
 ##################################################################
 rule nmf_all:
@@ -850,31 +850,6 @@ rule nmf_all:
         "results/nmf_continuous_var/.done",
         "results/nmf_categorical_var/.done",
         "results/nmf_annotate_programs/program_cellcycle_overlap.csv",
-
-rule cluster_gsea:
-    input:
-        h5ad = "results/integrated/integrated_clean.h5ad",
-        annotation = config["flybase_annotation"],
-    output:
-        flag = touch("results/cluster_gsea/.done"),
-    params:
-        script = config.get("gsea_script", "snakemake_scripts/analysis/cluster_gsea.py"),
-        output_dir = "results/cluster_gsea",
-        cluster_column = config.get("gsea_cluster_column", "cell_type_annotation"),
-    log: "logs/gsea/cluster_gsea.log"
-    threads: 4
-    resources:
-        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("4:00:00")
-    shell:
-        """
-        exec > {log} 2>&1
-        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
-        conda activate {SCANPY_ENV}
-        {SCANPY_ENV}/bin/python {params.script} \
-            --input {input.h5ad} --output_dir {params.output_dir} \
-            --flybase_annotation {input.annotation} \
-            --cluster_column {params.cluster_column} --threads {threads}
-        """
 
 rule nmf_programs:
     input:
@@ -1275,8 +1250,73 @@ WMEL_FAA = config.get("wmel_proteins", "")        # optional, rule rescue_secret
 WMEL_SIGNALP = config.get("wmel_signalp", "")     # optional, rule rescue_secretion
 WMEL_KEGG_DIR = config.get("wmel_kegg_dir", "")   # optional cache, rule rescue_gsea
 
+# Host pathway enrichment on the rescue contrasts, per cell type: genes ranked
+# by signed -log10 p from rescue_de, gseapy prerank against KEGG_2019 and
+# GO_Biological_Process_2018. Replaces the one-vs-rest cluster_gsea, which
+# pooled the four groups and so could not speak to rescue. The gmt cache is the
+# one cluster_gsea downloaded; 17_host_gsea.py downloads only what is missing.
+rule rescue_host_gsea:
+    input:
+        de = rules.rescue_de.output.host,
+        script = f"{RESCUE_SCRIPTS}/17_host_gsea.py",
+        gene_sets = f"{RESCUE_SCRIPTS}/plots/gene_sets.py",
+    output:
+        gsea = f"{RESCUE_DIR}/host_gsea/host_gsea.tsv",
+        summary = f"{RESCUE_DIR}/host_gsea/host_gsea_summary.tsv",
+    params:
+        outdir = f"{RESCUE_DIR}/host_gsea",
+        gmt_dir = config.get("host_gsea_gmt_dir", "results/cluster_gsea/gene_sets"),
+    log: "logs/rescue/host_gsea.log"
+    threads: 4
+    resources:
+        slurm_partition = "medium", mem_mb = 16000, runtime = hms_to_minutes("1:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --de {input.de} --gmt_dir {params.gmt_dir} \
+            --outdir {params.outdir} --threads {threads}
+        """
+
+# Eggshell program per cell: vitelline membrane, yolk and chorion scores,
+# fraction of follicle cells above each library's germline ambient floor and
+# score among those cells, tested on the same 4-df per-sample model as the
+# composition panels. Gene sets live in plots/gene_sets.py.
+rule rescue_eggshell:
+    input:
+        counts = rules.rescue_pseudobulk.output.counts,
+        annotation = config["flybase_annotation"],
+        script = f"{RESCUE_SCRIPTS}/18_eggshell.py",
+        gene_sets = f"{RESCUE_SCRIPTS}/plots/gene_sets.py",
+    output:
+        genes = f"{RESCUE_DIR}/eggshell/eggshell_genes.tsv",
+        by_sample = f"{RESCUE_DIR}/eggshell/eggshell_by_sample.tsv",
+        tests = f"{RESCUE_DIR}/eggshell/eggshell_tests.tsv",
+        floor = f"{RESCUE_DIR}/eggshell/eggshell_floor.tsv",
+        ambient = f"{RESCUE_DIR}/eggshell/eggshell_ambient.tsv",
+        titer = f"{RESCUE_DIR}/eggshell/eggshell_titer.tsv",
+    params:
+        outdir = f"{RESCUE_DIR}/eggshell",
+    log: "logs/rescue/eggshell.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --counts {input.counts} --annotation {input.annotation} \
+            --outdir {params.outdir}
+        """
+
 rule rescue_followup_all:
     input:
+        f"{RESCUE_DIR}/marker_expression/marker_expression_cpm.tsv",
+        f"{RESCUE_DIR}/host_gsea/host_gsea.tsv",
+        f"{RESCUE_DIR}/eggshell/eggshell_tests.tsv",
         f"{RESCUE_DIR}/label_qc/lineage_by_label.tsv",
         f"{RESCUE_DIR}/germline/germline_composition_tests.tsv",
         f"{RESCUE_DIR}/germline/de/host_de_all.tsv.gz",
@@ -1433,6 +1473,8 @@ rule rescue_wolbachia_followup:
     output:
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_followup_summary.tsv",
         f"{RESCUE_DIR}/wolbachia_followup/wolbachia_candidates.tsv",
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_de_checked.tsv.gz",
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_logcpm_long.tsv.gz",
     params:
         indir = f"{RESCUE_DIR}/pseudobulk", outdir = f"{RESCUE_DIR}/wolbachia_followup",
         min_wmel = config.get("rescue_min_wmel_umis", 2000),
@@ -1732,7 +1774,8 @@ _V = {  # two versions: <stem>_robust and <stem>_all
     "fig4_interaction_volcano": (
         "plot_interaction_volcano.py",
         f"{RESCUE_DIR}/de/host_de_all.tsv.gz",
-        f"--null {RESCUE_DIR}/rescue_null/rescue_null_summary.tsv"),
+        f"--null {RESCUE_DIR}/rescue_null/rescue_null_summary.tsv"
+        " --ambient_genes eggshell"),
     "fig3_titer_by_sample_tissue": (
         "plot_titer_by_sample_tissue.py",
         f"{RESCUE_DIR}/titer/titer_by_sample_tissue.tsv", ""),
@@ -1766,6 +1809,9 @@ _V = {  # two versions: <stem>_robust and <stem>_all
         f"{RESCUE_DIR}/summary/rescue_genes.tsv",
         f"--genes {RESCUE_DIR}/summary/rescue_genes.tsv "
         f"--null {RESCUE_DIR}/rescue_null/rescue_null_permutations.tsv"),
+    "fig5_rescue_direction": (
+        "plot_rescue_direction.py",
+        f"{RESCUE_DIR}/summary/rescue_genes.tsv", ""),
     "fig5_rescue_null": (
         "plot_rescue_null_summary.py",
         f"{RESCUE_DIR}/rescue_null/rescue_null_summary.tsv", ""),
@@ -1838,6 +1884,9 @@ _S = {  # one figure: the table has nothing meaningful to filter on
     "fig2_ambient_depth": (
         "plot_ambient_depth.py",
         f"{RESCUE_DIR}/uninfected_floor/ambient_depth.tsv", ""),
+    "fig5_interaction_direction": (
+        "plot_interaction_direction.py",
+        f"{RESCUE_DIR}/de/host_de_summary.tsv", ""),
     "fig3_composition_cell_counts": (
         "plot_composition_cell_counts.py",
         f"{RESCUE_DIR}/composition/composition_cell_counts.tsv", ""),
@@ -1853,9 +1902,51 @@ _S = {  # one figure: the table has nothing meaningful to filter on
     "supp_cell_counts_debris": (
         "plot_cell_counts_by_sample_tissue.py",
         f"{RESCUE_DIR}/label_qc/cell_counts_by_sample_tissue.tsv", ""),
+    # Eggshell figure. The heatmap and contrast summary read the edgeR table;
+    # the score, controls and UMAP read rescue_eggshell; the GSEA panels read
+    # rescue_host_gsea. Second tables passed in extra come from the same rule
+    # as the declared one, so the dependency is still tracked.
+    "fig_eggshell_heatmap": (
+        "plot_eggshell_heatmap.py",
+        f"{RESCUE_DIR}/de/host_de_all.tsv.gz",
+        f"--logcpm_dir {RESCUE_DIR}/de"),
+    "fig_eggshell_contrasts": (
+        "plot_eggshell_contrasts.py",
+        f"{RESCUE_DIR}/de/host_de_all.tsv.gz", ""),
+    "fig_eggshell_score": (
+        "plot_eggshell_score.py",
+        f"{RESCUE_DIR}/eggshell/eggshell_by_sample.tsv",
+        f"--tests {RESCUE_DIR}/eggshell/eggshell_tests.tsv"),
+    "supp_eggshell_controls": (
+        "plot_eggshell_controls.py",
+        f"{RESCUE_DIR}/eggshell/eggshell_ambient.tsv",
+        f"--titer {RESCUE_DIR}/eggshell/eggshell_titer.tsv"),
+    "fig_eggshell_gsea": (
+        "plot_host_gsea.py",
+        f"{RESCUE_DIR}/host_gsea/host_gsea.tsv", "--preset secretory"),
+    "supp_host_gsea": (
+        "plot_host_gsea.py",
+        f"{RESCUE_DIR}/host_gsea/host_gsea.tsv", "--preset top"),
+    # wMel expression by host genotype: four volcanoes, the module matrix and
+    # the replicates behind the paired claims. Both tables come from
+    # rescue_wolbachia_followup.
+    "fig_wmel_response": (
+        "plot_wmel_response.py",
+        f"{RESCUE_DIR}/wolbachia_followup/wolbachia_de_checked.tsv.gz",
+        f"--logcpm {RESCUE_DIR}/wolbachia_followup/wolbachia_logcpm_long.tsv.gz"),
 }
 
 PLOTS = {**_V, **_S}
+
+# Marker genes on the UMAP and per cell type. The list is MARKERS in
+# plots/gene_sets.py, so adding a gene there adds a figure and a table row.
+# mei-P26 is drawn by rescue_plot_umap_gene (fig4_umap_meip26) and only
+# tabulated here.
+import sys as _sys
+_sys.path.insert(0, PLOT_SCRIPTS)
+from gene_sets import MARKERS as UMAP_MARKERS
+UMAP_MARKER_PLOTS = {k: v for k, v in UMAP_MARKERS.items() if k != "mei-P26"}
+
 
 
 def _plot_field(stem, i):
@@ -1867,6 +1958,8 @@ rule rescue_plots_all:
         [f"{FIG_DIR}/{s}_{v}.pdf" for s in _V for v in ("robust", "all")],
         [f"{FIG_DIR}/{s}.pdf" for s in _S],
         f"{FIG_DIR}/fig1_umap_annotation.pdf",
+        expand(f"{FIG_DIR}/fig_umap_{{marker}}.pdf", marker=list(UMAP_MARKER_PLOTS)),
+        f"{FIG_DIR}/fig_eggshell_umap.pdf",
         f"{FIG_DIR}/fig1_composition_by_sample.pdf",
         f"{FIG_DIR}/fig1_wmel_capture_summary.pdf",
         f"{FIG_DIR}/fig2_signal_specificity.pdf",
@@ -1950,6 +2043,99 @@ rule rescue_plot_umap_gene:
             --expression {input.expression} --outdir {params.outdir} \
             --gene {params.gene} --gene_label {params.gene_label} \
             {params.exclude_flag}
+        """
+
+rule rescue_plot_umap_eggshell:
+    """Summed eggshell expression on the atlas UMAP, one panel per group.
+
+    Same script and the same debris rule as rescue_plot_umap_gene, with the
+    22 eggshell genes from rescue_eggshell summed per cell instead of one gene.
+    """
+    input:
+        integrated = "results/integrated/integrated.h5ad",
+        expression = f"{RESCUE_DIR}/pseudobulk/counts_labeled.h5ad",
+        gene_set = f"{RESCUE_DIR}/eggshell/eggshell_genes.tsv",
+        exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
+        script = f"{PLOT_SCRIPTS}/plot_umap_gene.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        f"{FIG_DIR}/fig_eggshell_umap.pdf",
+    params:
+        outdir = FIG_DIR,
+        exclude_flag = f"--exclude_cells {RESCUE_DEBRIS}" if RESCUE_DEBRIS else "",
+    log: "logs/rescue/plots/fig_eggshell_umap.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --integrated {input.integrated} \
+            --expression {input.expression} --outdir {params.outdir} \
+            --gene_set {input.gene_set} --gene_label eggshell \
+            --stem fig_eggshell_umap {params.exclude_flag}
+        """
+
+rule rescue_marker_expression:
+    input:
+        counts = rules.rescue_pseudobulk.output.counts,
+        script = f"{RESCUE_SCRIPTS}/19_marker_expression.py",
+        gene_sets = f"{PLOT_SCRIPTS}/gene_sets.py",
+    output:
+        long = f"{RESCUE_DIR}/marker_expression/marker_expression_long.tsv",
+        cpm = f"{RESCUE_DIR}/marker_expression/marker_expression_cpm.tsv",
+        frac = f"{RESCUE_DIR}/marker_expression/marker_expression_frac.tsv",
+        counts_out = f"{RESCUE_DIR}/marker_expression/marker_expression_counts.tsv",
+    params:
+        outdir = f"{RESCUE_DIR}/marker_expression",
+    log: "logs/rescue/marker_expression.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 32000, runtime = hms_to_minutes("0:30:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --counts {input.counts} --outdir {params.outdir}
+        """
+
+rule rescue_plot_umap_markers:
+    """One marker gene on the atlas UMAP, one panel per group.
+
+    Same script and debris rule as rescue_plot_umap_gene. wMel genes (WD_ ids)
+    are normalised to the cell's wMel UMIs; cells with no wMel reads are drawn
+    in the grey background only.
+    """
+    input:
+        integrated = "results/integrated/integrated.h5ad",
+        expression = f"{RESCUE_DIR}/pseudobulk/counts_labeled.h5ad",
+        exclude = RESCUE_DEBRIS if RESCUE_DEBRIS else [],
+        script = f"{PLOT_SCRIPTS}/plot_umap_gene.py",
+        style = f"{PLOT_SCRIPTS}/figstyle.py",
+    output:
+        f"{FIG_DIR}/fig_umap_{{marker}}.pdf",
+    wildcard_constraints:
+        marker = "|".join(UMAP_MARKER_PLOTS),
+    params:
+        outdir = FIG_DIR,
+        gene = lambda w: UMAP_MARKER_PLOTS[w.marker],
+        exclude_flag = f"--exclude_cells {RESCUE_DEBRIS}" if RESCUE_DEBRIS else "",
+    log: "logs/rescue/plots/fig_umap_{marker}.log"
+    resources:
+        slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh
+        conda activate {SCANPY_ENV}
+        {SCANPY_ENV}/bin/python {input.script} \
+            --integrated {input.integrated} \
+            --expression {input.expression} --outdir {params.outdir} \
+            --gene {params.gene} --gene_label {wildcards.marker} \
+            --stem fig_umap_{wildcards.marker} {params.exclude_flag}
         """
 
 rule rescue_plot_gene_group_summary:

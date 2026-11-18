@@ -60,7 +60,9 @@ def parse_args():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--logcpm_dir", required=True,
                    help="directory holding host_logcpm_<tissue>.tsv.gz")
-    p.add_argument("--de", required=True, help="de/host_de_all.tsv.gz")
+    p.add_argument("--de", "--input", dest="de", required=True,
+                   help="de/host_de_all.tsv.gz. --input is accepted as well, "
+                        "because the generic plot rules pass the table that way")
     p.add_argument("--gene", default="FBgn0026206",
                    help="FlyBase id of the gene to plot (default mei-P26)")
     p.add_argument("--gene_label", default="mei-P26")

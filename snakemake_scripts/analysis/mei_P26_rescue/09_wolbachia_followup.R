@@ -13,9 +13,16 @@
 #    (e.g. highly expressed ncRNAs) can dominate library size and TMM.
 #    Refit with library sizes and TMM factors computed WITHOUT those genes,
 #    still testing every gene, and compare logFC/FDR with the original fit.
-# C. Pooled sample-level test: sum wMel counts over all tissues per infected
-#    sample (4 libraries, 2 vs 2). Each gene gets one test on independent
-#    samples, unlike the per-tissue tests, which reuse the same 4 samples.
+# C. Pooled sample-level test: sum wMel counts over the confidently labelled
+#    ovarian cell types per infected sample (4 libraries, 2 vs 2). Each gene
+#    gets one test on independent samples, unlike the per-tissue tests, which
+#    reuse the same 4 samples. --drop_labels (default artefact, unannotated,
+#    adult tracheal cell, oviduct) are left out of the sum, as they are left
+#    out of every host figure; the row keeps the name pooled_all_tissues so
+#    downstream scripts need no change. --drop_labels '' restores the old sum.
+#    Their per-tissue rows are still written, and the plots drop them.
+# E. Per-library logCPM for every fit (per tissue and pooled), in long form,
+#    so figures can show the replicates behind a logFC: wolbachia_logcpm_long.tsv.gz
 # D. Optional --gff: RefSeq GFF3 or GTF (e.g. the combined fly + wMel GTF used
 #    for the kallisto index); adds gene, product and old_locus_tag per WD_* tag.
 #
@@ -23,13 +30,15 @@
 #   Rscript 09_wolbachia_followup.R --pseudobulk_dir results/rescue/pseudobulk \
 #     --outdir results/rescue/wolbachia_followup [--min_cells 20] \
 #     [--min_wmel_umis 2000] [--min_reps 2] [--fdr 0.05] [--dominant_frac 0.05] \
-#     [--gff reference/wMel_genomic.gff.gz]
+#     [--gff reference/wMel_genomic.gff.gz] \
+#     [--drop_labels 'artefact,unannotated,adult tracheal cell,oviduct']
 
 suppressPackageStartupMessages({ library(edgeR); library(limma) })
 
 parse_args <- function(argv) {
   opts <- list(min_cells = 20, min_wmel_umis = 2000, min_reps = 2, fdr = 0.05,
-               dominant_frac = 0.05, gff = NA)
+               dominant_frac = 0.05, gff = NA,
+               drop_labels = "artefact,unannotated,adult tracheal cell,oviduct")
   for (i in seq(1, length(argv), by = 2)) opts[[sub("^--", "", argv[i])]] <- argv[i + 1]
   for (k in c("min_cells", "min_wmel_umis", "min_reps", "fdr", "dominant_frac")) opts[[k]] <- as.numeric(opts[[k]])
   for (k in c("pseudobulk_dir", "outdir")) if (is.null(opts[[k]])) stop("need --", k)
@@ -104,8 +113,24 @@ for (tis in sort(unique(mw$tissue))) {
 }
 tab <- do.call(rbind, res)
 
+long_lcpm <- function(y, geno, samp, tis) {
+  lc <- cpm(y, log = TRUE, prior.count = 2)
+  data.frame(tissue = tis, gene_id = rep(rownames(lc), times = ncol(lc)),
+             sample = rep(as.character(samp), each = nrow(lc)),
+             geno = rep(as.character(geno), each = nrow(lc)),
+             logCPM = as.vector(lc))
+}
+lcl <- list()
+for (tis in names(res)) {
+  m <- mw[mw$tissue == tis, ]
+  lcl[[tis]] <- long_lcpm(fit_geno(wmel[, rownames(m)], m$geno)$y, m$geno, m$sample, tis)
+}
+
 # C. pooled per-sample test
-inf <- meta[meta$infection_status == "wMel", ]
+drop <- trimws(strsplit(opt$drop_labels, ",")[[1]]); drop <- drop[nzchar(drop)]
+inf <- meta[meta$infection_status == "wMel" & !(meta$tissue %in% drop), ]
+cat("Pooled test sums", length(unique(inf$tissue)), "labels; left out:",
+    if (length(drop)) paste(drop, collapse = ", ") else "none", "\n")
 pooled <- sapply(split(inf$pb_id, inf$sample), function(ids) rowSums(wmel[, ids, drop = FALSE]))
 pmeta <- unique(inf[, c("sample", "geno")]); pmeta <- pmeta[match(colnames(pooled), pmeta$sample), ]
 po <- fit_geno(pooled, pmeta$geno)
@@ -115,6 +140,9 @@ pt$logFC_excl_dominant <- ps$tt$logFC[match(pt$gene_id, ps$tt$gene_id)]
 pt$FDR_excl_dominant <- ps$tt$FDR[match(pt$gene_id, ps$tt$gene_id)]
 pt$dominant <- pt$gene_id %in% dominant
 tab <- rbind(tab, data.frame(tissue = "pooled_all_tissues", pt))
+lcl[["pooled_all_tissues"]] <- long_lcpm(po$y, pmeta$geno, pmeta$sample, "pooled_all_tissues")
+write.table(do.call(rbind, lcl), gzfile(file.path(opt$outdir, "wolbachia_logcpm_long.tsv.gz")),
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
 # D. annotation: RefSeq GFF3 (key=value;) or GTF (key "value";), plain or .gz.
 # Only lines with a Wolbachia locus tag are read, so the combined fly + wMel

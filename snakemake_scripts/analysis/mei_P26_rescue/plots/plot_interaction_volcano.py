@@ -71,14 +71,28 @@ def parse_args():
     p.add_argument("--n_label", type=int, default=6,
                    help="genes named per panel, by smallest FDR")
     p.add_argument("--ncol", type=int, default=3)
+    p.add_argument("--ambient_genes", default=None,
+                   help="'eggshell' for the set in gene_sets.py, or a TSV with "
+                        "a gene_id column such as eggshell_genes.tsv: "
+                        "genes made by follicle cells whose transcript turns up "
+                        "in germline panels as ambient RNA or in somatic cells "
+                        "the atlas labelled as germline. In panels matching "
+                        "--ambient_tissues they are drawn hollow, never "
+                        "labelled, and counted apart, so a vitelline membrane "
+                        "gene is not presented as the top germline hit")
+    p.add_argument("--ambient_tissues", default="germ",
+                   help="case-insensitive pattern for the panels where "
+                        "--ambient_genes are treated as carry-over")
     p.add_argument("--drop_labels",
                    default=",".join(tuple(LOW_CONFIDENCE) + NON_OVARIAN))
     p.add_argument("--version", choices=("robust", "all", "both"), default="both")
     return p.parse_args()
 
 
-def panel(ax, d, args, title):
+def panel(ax, d, args, title, ambient=frozenset()):
     d = d.dropna(subset=["logFC", "FDR"]).copy()
+    amb = d[d["gene_id"].isin(ambient)]
+    d = d[~d["gene_id"].isin(ambient)]
     # FDR of exactly 0 has no log. Floor it at the smallest positive value in
     # the panel so those genes stay visible and stay at the top, rather than
     # dropping out of the figure silently.
@@ -109,7 +123,16 @@ def panel(ax, d, args, title):
         ax.annotate(str(r.get("symbol") or r["gene_id"]), (r["logFC"], r["y"]),
                     fontsize=4.5, xytext=(2.5, 2), textcoords="offset points",
                     color=COL["black"])
-    ax.set_title(f"{title}\n{int(sig.sum())} genes", pad=3, fontsize=6.5)
+    n_amb = 0
+    if len(amb):
+        ya = -np.log10(amb["FDR"].clip(lower=pos.min() if len(pos) else 1e-300))
+        sa = amb["FDR"] < args.alpha
+        n_amb = int(sa.sum())
+        ax.scatter(amb.loc[sa, "logFC"], ya[sa], s=9, marker="D", zorder=4,
+                   facecolors="none", edgecolors=COL["grey"], linewidths=0.6)
+    extra = f" (+{n_amb} follicle-derived, hollow)" if n_amb else ""
+    ax.set_title(f"{title}\n{int(sig.sum())} genes{extra}", pad=3,
+                 fontsize=6.5 if not extra else 5.8)
     ax.tick_params(labelsize=5.5)
     return int(sig.sum())
 
@@ -129,7 +152,9 @@ def build(d, args, suffix, note_txt):
     for i, t in enumerate(types.index):
         ax = axes[i // ncol][i % ncol]
         ax.set_axis_on()
-        n = panel(ax, d[d["tissue"] == t], args, ct_short([t])[0])
+        is_amb = bool(args.ambient_set) and args.ambient_tissues.lower() in t.lower()
+        n = panel(ax, d[d["tissue"] == t], args, ct_short([t])[0],
+                  args.ambient_set if is_amb else frozenset())
         if i % ncol == 0:
             ax.set_ylabel("-log$_{10}$ FDR", fontsize=6)
         if i // ncol == nrow - 1 or i >= len(types) - ncol:
@@ -154,6 +179,20 @@ def main():
     d = d[~d["tissue"].isin(drop)]
     print(f"{d['tissue'].nunique()} cell types, {len(d):,} gene tests; "
           f"dropped {sorted(drop) or 'none'}")
+
+    args.ambient_set = frozenset()
+    if args.ambient_genes == "eggshell":
+        # Straight from gene_sets.py, so the plot needs no file from the
+        # eggshell rule and cannot run ahead of it.
+        from gene_sets import FBGN
+        args.ambient_set = frozenset(FBGN.values())
+    elif args.ambient_genes:
+        if not os.path.exists(args.ambient_genes):
+            raise SystemExit(f"--ambient_genes {args.ambient_genes} does not exist")
+        args.ambient_set = frozenset(
+            pd.read_csv(args.ambient_genes, sep="\t", comment="#")["gene_id"])
+        print(f"{len(args.ambient_set)} follicle-made genes are drawn hollow "
+              f"and unlabelled in panels matching '{args.ambient_tissues}'")
 
     beats = None
     if args.null and os.path.exists(args.null):

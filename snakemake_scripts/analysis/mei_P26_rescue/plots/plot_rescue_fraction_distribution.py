@@ -58,7 +58,10 @@ NON_OVARIAN = ("adult tracheal cell", "oviduct")
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--genes", required=True, help="summary/rescue_genes.tsv")
+    p.add_argument("--genes", "--input", dest="genes", required=True,
+                   help="summary/rescue_genes.tsv. --input is accepted as "
+                        "well, because the generic plot rules pass the table "
+                        "that way")
     p.add_argument("--null", default=None,
                    help="rescue_null/rescue_null_permutations.tsv; without it "
                         "the panel loses the only thing that makes the "

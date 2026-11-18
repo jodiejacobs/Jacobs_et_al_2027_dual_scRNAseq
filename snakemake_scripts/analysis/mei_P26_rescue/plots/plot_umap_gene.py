@@ -20,11 +20,23 @@ few positive cells underneath 30,000 negative ones are invisible.
 
 Expression scale. integrated.h5ad may hold raw counts, normalised values or
 scaled ones depending on how the object was written, and the figure means
-different things in each case. --normalize auto inspects the matrix: if it is
-non-negative integers it is treated as counts and normalised per cell then
-log1p transformed, otherwise it is used as it stands. Whatever it decides is
-printed, and the colour bar is labelled accordingly. Pass --normalize
-explicitly if the object is something the check cannot recognise.
+different things in each case. --normalize auto inspects the matrix: it is
+treated as counts, normalised per cell and log1p transformed, if it is
+non-negative and either all integers or carries a per-cell depth column in obs
+(host_umis). The second case matters: counts_labeled.h5ad holds fractional
+counts from multi-mapping assignment, which are counts but not integers, and
+an integer-only check misread them as already transformed. Otherwise the
+values are used as they stand. Whatever it decides is printed, and the colour
+bar is labelled accordingly.
+
+Wolbachia genes (ids starting WD_) are normalised to the cell's wMel UMIs
+(obs wmel_umis), not its host UMIs, so the colour is wMel expression per unit
+of wMel captured rather than a mix of expression and titer. That is the same
+normalisation as the wMel DE. Cells with no wMel reads have no value: they are
+drawn in the grey background only, and "expressing" in the panel title is a
+fraction of the cells that carry wMel reads. wMel UMIs are mostly 23S and 16S
+rRNA, so the denominator is in practice the cell's Wolbachia rRNA. --depth_col
+overrides the choice.
 
 Usage:
   python plot_umap_gene.py \
@@ -73,6 +85,14 @@ def parse_args():
     p.add_argument("--gene", default="FBgn0026206",
                    help="FlyBase id, or a symbol if var carries one")
     p.add_argument("--gene_label", default="mei-P26")
+    p.add_argument("--gene_set", default=None,
+                   help="TSV with a gene_id column (and optionally class), "
+                        "such as eggshell_genes.tsv. The colour is then the "
+                        "summed expression of the set, and --gene is ignored. "
+                        "Needs a counts matrix, since a sum of transformed "
+                        "values is not the expression of anything")
+    p.add_argument("--gene_set_class", default=None,
+                   help="keep only this class from --gene_set")
     p.add_argument("--umap_key", default="X_umap_atlas")
     p.add_argument("--sample_col", default="source_file",
                    help="used to derive the genotype by infection group when "
@@ -89,6 +109,10 @@ def parse_args():
                    help="layer to read expression from; default .X")
     p.add_argument("--normalize", choices=("auto", "none", "lognorm"),
                    default="auto")
+    p.add_argument("--depth_col", default="auto",
+                   help="obs column used as the per-cell total for lognorm. "
+                        "auto: wmel_umis for a WD_ gene, otherwise host_umis "
+                        "(then total_counts, n_counts)")
     p.add_argument("--vmax_quantile", type=float, default=0.995,
                    help="colour scale top, as a quantile of the expressing "
                         "cells. A handful of very high cells otherwise set the "
@@ -169,35 +193,54 @@ def load(args):
         erows = en.get_indexer(common)      # positions, not a view
         obs_names = common
 
-    # The gene, by id or by whatever symbol column var carries.
-    name = args.gene
-    if name not in e.var_names:
-        for c in ("symbol", "gene_symbol", "gene_name", "Symbol"):
-            if c in e.var.columns:
-                hit = e.var.index[e.var[c].astype(str) == name]
-                if len(hit):
-                    name = hit[0]
-                    break
-    if name not in e.var_names:
-        where = args.expression or args.integrated
-        extra = ("" if args.expression else
-                 "\nintegrated.h5ad is usually subset to the highly variable "
-                 "genes, so most genes are missing from it. Pass --expression "
-                 "results/rescue/pseudobulk/counts_labeled.h5ad, which keeps "
-                 "every gene.")
-        raise SystemExit(f"{args.gene} is not in var_names of "
-                         f"{os.path.basename(where)} and no symbol column "
-                         f"matched it. var has {e.n_vars:,} entries, columns "
-                         f"{list(e.var.columns)[:8]}.{extra}")
-
     def dense(m):
         return (np.asarray(m.todense()) if sp.issparse(m)
                 else np.asarray(m))
 
-    # One index operation on the backed object, then select rows in memory.
-    gi = e.var_names.get_loc(name)
-    sub = e[:, [gi]]
-    v = dense(sub.layers[args.layer] if args.layer else sub.X).ravel()[erows]
+    if args.gene_set:
+        gs = pd.read_csv(args.gene_set, sep="\t", comment="#")
+        if args.gene_set_class:
+            gs = gs[gs["class"] == args.gene_set_class]
+        ids = [g for g in gs["gene_id"] if g in e.var_names]
+        if len(ids) < 2:
+            where = args.expression or args.integrated
+            raise SystemExit(f"only {len(ids)} of {len(gs)} genes in "
+                             f"{args.gene_set} are in {os.path.basename(where)}. "
+                             "integrated.h5ad keeps only the highly variable "
+                             "genes; pass --expression "
+                             "results/rescue/pseudobulk/counts_labeled.h5ad.")
+        print(f"gene set: {len(ids)} of {len(gs)} genes found")
+        # One index operation on the backed object, columns in file order.
+        gi = np.sort(e.var_names.get_indexer(ids))
+        sub = e[:, gi]
+        v = dense(sub.layers[args.layer] if args.layer
+                  else sub.X).sum(axis=1).ravel()[erows]
+    else:
+        # The gene, by id or by whatever symbol column var carries.
+        name = args.gene
+        if name not in e.var_names:
+            for c in ("symbol", "gene_symbol", "gene_name", "Symbol"):
+                if c in e.var.columns:
+                    hit = e.var.index[e.var[c].astype(str) == name]
+                    if len(hit):
+                        name = hit[0]
+                        break
+        if name not in e.var_names:
+            where = args.expression or args.integrated
+            extra = ("" if args.expression else
+                     "\nintegrated.h5ad is usually subset to the highly "
+                     "variable genes, so most genes are missing from it. Pass "
+                     "--expression results/rescue/pseudobulk/"
+                     "counts_labeled.h5ad, which keeps every gene.")
+            raise SystemExit(f"{args.gene} is not in var_names of "
+                             f"{os.path.basename(where)} and no symbol column "
+                             f"matched it. var has {e.n_vars:,} entries, "
+                             f"columns {list(e.var.columns)[:8]}.{extra}")
+        # One index operation on the backed object, then rows in memory.
+        gi = e.var_names.get_loc(name)
+        sub = e[:, [gi]]
+        v = dense(sub.layers[args.layer] if args.layer
+                  else sub.X).ravel()[erows]
 
     mode = args.normalize
     if mode == "auto":
@@ -213,13 +256,28 @@ def load(args):
         blk_ad = e[rows, cols]              # one index, not a view of a view
         blk = dense(blk_ad.layers[args.layer] if args.layer else blk_ad.X).ravel()
         blk = blk[np.isfinite(blk)]
-        looks_counts = bool(len(blk) and blk.min() >= 0
-                            and np.array_equal(blk, np.round(blk)))
+        nonneg = bool(len(blk) and blk.min() >= 0)
+        integer = bool(len(blk) and np.array_equal(blk, np.round(blk)))
+        has_depth = any(c in e.obs.columns
+                        for c in ("host_umis", "total_counts", "n_counts"))
+        # Fractional counts (EM assignment of multi-mapping reads) are counts
+        # too; a depth column in obs says the object was written as counts.
+        looks_counts = nonneg and (integer or has_depth)
         mode = "lognorm" if looks_counts else "none"
-        what = "raw counts" if looks_counts else "already transformed values"
+        if args.gene_set and not looks_counts:
+            raise SystemExit("--gene_set needs raw counts, and this matrix "
+                             "does not look like counts. Point --expression at "
+                             "an object that holds them.")
+        what = ("raw counts" if looks_counts and integer else
+                "fractional counts, with a depth column" if looks_counts else
+                "already transformed values")
         print(f"--normalize auto: sampled {len(blk):,} entries, matrix looks "
               f"like {what}, so using {mode}")
 
+    if args.gene_set and mode == "none":
+        raise SystemExit("--gene_set with --normalize none would sum values "
+                         "that are already transformed, which is not the "
+                         "expression of anything. Use counts with lognorm.")
     eobs = e.obs.iloc[erows]
     if mode == "lognorm":
         # Per-cell totals. Summing the whole matrix on a backed object reads
@@ -227,18 +285,35 @@ def load(args):
         # carries one. counts_labeled.h5ad has host_umis, which is exactly
         # this quantity for the host side.
         depth = None
-        for c in ("host_umis", "total_counts", "n_counts"):
+        wmel_gene = (not args.gene_set) and str(args.gene).startswith("WD_")
+        if args.depth_col != "auto":
+            cands = (args.depth_col,)
+        elif wmel_gene:
+            cands = ("wmel_umis",)
+        else:
+            cands = ("host_umis", "total_counts", "n_counts")
+        for c in cands:
             if c in eobs.columns:
                 depth = pd.to_numeric(eobs[c], errors="coerce").to_numpy(float)
                 print(f"per-cell depth from obs['{c}']")
                 break
+        if depth is None and (wmel_gene or args.depth_col != "auto"):
+            raise SystemExit(f"obs has none of {cands}; cannot normalise "
+                             f"{args.gene}. obs columns: {list(eobs.columns)[:15]}")
         if depth is None:
             print("no depth column in obs, summing the matrix (slow on a "
                   "backed object)")
             depth = np.asarray(dense(e[erows].X).sum(axis=1)).ravel()
-        depth = np.where(np.isfinite(depth) & (depth > 0), depth, 1.0)
-        v = np.log1p(v / depth * 1e4)
-        unit = "log1p(CP10K)"
+        ok = np.isfinite(depth) & (depth > 0)
+        if wmel_gene:
+            # No wMel captured means no wMel expression to speak of: leave
+            # the cell without a value rather than calling it zero.
+            v = np.where(ok, np.log1p(v / np.where(ok, depth, 1.0) * 1e4), np.nan)
+            unit = "log1p(CP10K of wMel UMIs)"
+            print(f"{int(ok.sum()):,} of {len(ok):,} cells carry wMel reads")
+        else:
+            v = np.log1p(v / np.where(ok, depth, 1.0) * 1e4)
+            unit = "log1p(CP10K)"
     else:
         unit = "value in the object"
 
@@ -270,7 +345,7 @@ def main():
     groups += [g for g in pd.unique(grp) if g not in groups]
     if not groups:
         raise SystemExit("no cells in any recognised group")
-    pos = v[v > 0]
+    pos = v[np.isfinite(v) & (v > 0)]
     vmax = float(np.quantile(pos, args.vmax_quantile)) if len(pos) else 1.0
     if vmax <= 0:
         vmax = float(v.max()) or 1.0
@@ -286,21 +361,25 @@ def main():
     for i, g in enumerate(groups):
         ax = axes[i // nc][i % nc]
         m = grp == g
+        has = m & np.isfinite(v)
         # All cells behind, so a quiet panel still shows the tissue.
         ax.scatter(xy[:, 0], xy[:, 1], s=args.point_size * 0.7, linewidths=0,
                    color="#F0F0F0", rasterized=True, zorder=1)
-        o = np.argsort(v[m])          # brightest last, or they vanish
-        sc = ax.scatter(xy[m][o, 0], xy[m][o, 1], s=args.point_size,
-                        c=np.clip(v[m][o], 0, vmax), cmap=CMAP, vmin=0,
+        o = np.argsort(v[has])        # brightest last, or they vanish
+        sc = ax.scatter(xy[has][o, 0], xy[has][o, 1], s=args.point_size,
+                        c=np.clip(v[has][o], 0, vmax), cmap=CMAP, vmin=0,
                         vmax=vmax, linewidths=0, rasterized=True, zorder=2)
         ax.set_xticks([]); ax.set_yticks([])
         for s in ax.spines.values():
             s.set_visible(False)
         ax.set_xlim(xy[:, 0].min() - xpad, xy[:, 0].max() + xpad)
         ax.set_ylim(xy[:, 1].min() - ypad, xy[:, 1].max() + ypad)
-        frac = float((v[m] > 0).mean())
+        frac = float((v[has] > 0).mean()) if has.any() else 0.0
+        pct = f"{frac:.1%}" if 0 < frac < 0.01 else f"{frac:.0%}"
+        of = ("" if has.sum() == m.sum() else
+              f"\nof the {int(has.sum()):,} with wMel reads")
         ax.set_title(f"{NICE.get(g, g)}\n{int(m.sum()):,} cells, "
-                     f"{frac:.0%} expressing", pad=3, fontsize=7)
+                     f"{pct} expressing{of}", pad=3, fontsize=6.5)
         panel_letter(ax, "ABCD"[i] if i < 4 else str(i + 1), dx=-0.04, dy=1.02)
     for j in range(len(groups), nr * nc):
         axes[j // nc][j % nc].set_axis_off()
@@ -314,21 +393,27 @@ def main():
          "grey is every cell, for shape", y=-0.06)
     save(fig, args.outdir, args.stem)
 
+    fin = np.isfinite(v)
     out = pd.DataFrame({
         "group": groups,
         "n_cells": [int((grp == g).sum()) for g in groups],
-        "frac_expressing": [round(float((v[grp == g] > 0).mean()), 3)
+        "n_with_value": [int(((grp == g) & fin).sum()) for g in groups],
+        "frac_expressing": [round(float((v[(grp == g) & fin] > 0).mean()), 3)
+                            if ((grp == g) & fin).any() else float("nan")
                             for g in groups],
-        "mean_expr": [round(float(v[grp == g].mean()), 3) for g in groups],
+        "mean_expr": [round(float(np.nanmean(v[grp == g])), 3)
+                      if ((grp == g) & fin).any() else float("nan")
+                      for g in groups],
         "mean_expr_in_expressing": [
-            round(float(v[(grp == g) & (v > 0)].mean()), 3)
-            if ((grp == g) & (v > 0)).any() else float("nan") for g in groups]})
+            round(float(v[(grp == g) & fin & (v > 0)].mean()), 3)
+            if ((grp == g) & fin & (v > 0)).any() else float("nan")
+            for g in groups]})
     print()
     print(out.to_string(index=False))
     print("\nfrac_expressing moves with sequencing depth as well as with "
           "biology, so read it beside mean_expr_in_expressing rather than on "
-          "its own. The per-cell-type test is fig4_meip26_expression; this "
-          "figure is for showing where the expression sits, not for testing.")
+          "its own. The per-cell-type tests are in the DE and eggshell tables; "
+          "this figure shows where the expression sits and tests nothing.")
 
 
 if __name__ == "__main__":
