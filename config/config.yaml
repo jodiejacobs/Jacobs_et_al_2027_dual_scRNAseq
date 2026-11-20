@@ -179,7 +179,7 @@ hypo_fdr: 0.05
 hypo_product_regex: "hypothetical|DUF|uncharacteri[sz]ed"
 hypo_context_window: 5
 hypo_env: "/private/groups/russelllab/jodie/miniforge3/envs/hypo"   # config/envs/hypo_env.yml
-interproscan_dir: ""        # e.g. /private/groups/russelllab/jodie/tools/interproscan-5.xx
+interproscan_dir: "/private/groups/russelllab/jodie/tools/interproscan/interproscan-5.78-109.0"        # e.g. /private/groups/russelllab/jodie/tools/interproscan-5.xx
 interproscan_apps: ""       # blank = all analyses; else comma list, e.g. "Pfam,SMART,CDD"
 eggnog_data_dir: "/private/groups/russelllab/jodie/db/eggnog"
 colabfold_bin: "/private/groups/russelllab/jodie/tools/localcolabfold/.pixi/envs/default/bin/colabfold_batch"
