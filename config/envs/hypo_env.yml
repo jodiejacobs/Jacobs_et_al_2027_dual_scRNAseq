@@ -1,0 +1,9 @@
+# mamba env create -f config/envs/hypo_env.yml  (then set hypo_env in config.yaml)
+# InterProScan and ColabFold are installed separately: set interproscan_dir and colabfold_bin.
+name: hypo
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - pandas
+  - eggnog-mapper
+  - foldseek

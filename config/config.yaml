@@ -171,3 +171,18 @@ rescue_atlas_max_cells: 0             # subsample the atlas (0 = all cells)
 rescue_floor_quantile: 0.99           # quantile of uninfected per-cell titer used as the floor
 rescue_titer_prog_depth_col: "auto"   # "auto" prefers qc_host_counts over n_counts
 rescue_titer_prog_permutations: 2000  # within-group permutation null; floors p at 1/(N+1)
+
+# Hypothetical wMel protein characterisation (rules in
+# snakemake_scripts/analysis/mei_P26_rescue/hypothetical_protein_rules.smk)
+hypo_contrast: "MeiP26_vs_OreR"
+hypo_fdr: 0.05
+hypo_product_regex: "hypothetical|DUF|uncharacteri[sz]ed"
+hypo_context_window: 5
+hypo_env: "/private/groups/russelllab/jodie/miniforge3/envs/hypo"   # config/envs/hypo_env.yml
+interproscan_dir: ""        # e.g. /private/groups/russelllab/jodie/tools/interproscan-5.xx
+interproscan_apps: ""       # blank = all analyses; else comma list, e.g. "Pfam,SMART,CDD"
+eggnog_data_dir: ""         # download_eggnog_data.py target
+colabfold_bin: "colabfold_batch"
+colabfold_extra: ""         # e.g. local MSA server / database flags
+colabfold_partition: "gpu"
+hypo_foldseek_dbs: {}       # name: prebuilt db path, e.g. {pdb: /path/pdb, afdb_swissprot: /path/afdb_sp}

@@ -2270,3 +2270,6 @@ rule rescue_plot_single:
             --input {input.table} --outdir {params.outdir} \
             --stem {wildcards.stem} {params.extra}
         """
+
+# Hypothetical wMel protein characterisation (added 2026-11-20)
+include: "snakemake_scripts/analysis/mei_P26_rescue/hypothetical_protein_rules.smk"
