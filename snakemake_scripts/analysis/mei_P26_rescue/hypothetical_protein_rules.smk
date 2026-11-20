@@ -116,6 +116,7 @@ rule hypo_colabfold:
         raw = f"{HYPO_DIR}/colabfold/raw",
     log: "logs/rescue/hypo_colabfold.log"
     resources:
+        slurm_partition = config.get("colabfold_partition", "gpu"),
         slurm_extra = "'--gres=gpu:1'",
         mem_mb = 64000, runtime = hms_to_minutes("4:00:00")
     shell:
