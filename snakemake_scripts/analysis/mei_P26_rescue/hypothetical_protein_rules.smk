@@ -4,7 +4,8 @@
 #   InterProScan, eggNOG-mapper   sequence annotation, whole wMel proteome (cheap, reusable)
 #   ColabFold + Foldseek          structure and structural homology, hits only
 #   21_hypo_context.py  neighbouring genes, mobile-element / co-up neighbours
-#   22_hypo_merge.py    one evidence table (also pulls rescue_secretion's class and euk_domain)
+#   22_hypo_merge.py    one evidence table (also pulls rescue_secretion's class and euk_domain,
+#                       C-terminal charge features and external T4SE predictor tables)
 #
 # snakemake --executor slurm --default-resources slurm_partition=medium -j 4 hypo_all
 #
@@ -14,6 +15,7 @@
 HYPO_DIR = f"{RESCUE_DIR}/hypothetical"
 HYPO_ENV = config.get("hypo_env", "/private/groups/russelllab/jodie/miniforge3/envs/hypo")
 FOLDSEEK_DBS = config.get("hypo_foldseek_dbs") or {}
+T4SE_TABLES = config.get("hypo_t4se_tables") or {}
 CONDA_SH = "source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh"
 
 rule hypo_all:
@@ -182,8 +184,12 @@ rule hypo_merge:
         scores = rules.hypo_colabfold.output.scores,
         context = rules.hypo_context.output,
         foldseek = expand(f"{HYPO_DIR}/foldseek/{{db}}.m8", db=list(FOLDSEEK_DBS)),
+        proteome = rules.hypo_proteome_faa.output,
+        t4se = list(T4SE_TABLES.values()),
     output: f"{HYPO_DIR}/hypothetical_evidence.tsv"
-    params: fs = " ".join(f"{db}={HYPO_DIR}/foldseek/{db}.m8" for db in FOLDSEEK_DBS)
+    params:
+        fs = " ".join(f"{db}={HYPO_DIR}/foldseek/{db}.m8" for db in FOLDSEEK_DBS),
+        t4se = " ".join(f"{k}={v}" for k, v in T4SE_TABLES.items()),
     log: "logs/rescue/hypo_merge.log"
     resources: slurm_partition = "medium", mem_mb = 4000, runtime = hms_to_minutes("0:10:00")
     shell:
@@ -194,5 +200,6 @@ rule hypo_merge:
         {SCANPY_ENV}/bin/python {RESCUE_SCRIPTS}/22_hypo_merge.py --hits {input.hits} \\
             --secretion {input.secretion} --interpro {input.interpro} --eggnog {input.eggnog} \\
             --scores_dir {input.scores} --context {input.context} \\
-            --foldseek {params.fs} --out {output}
+            --foldseek {params.fs} --t4se {params.t4se} \\
+            --proteome_faa {input.proteome} --out {output}
         """

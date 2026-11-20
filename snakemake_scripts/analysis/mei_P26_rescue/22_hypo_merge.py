@@ -3,7 +3,12 @@
 
 Joins DE (hits.tsv), secretion class (11_wolbachia_secretion.py), InterProScan
 domains, eggNOG-mapper annotation, ColabFold mean pLDDT, the top Foldseek hit
-per database, and genomic context. Missing inputs leave their columns empty.
+per database, genomic context, C-terminal charge features (percentile among all
+wMel proteins) and any external T4SE predictor tables (--t4se name=path, TSV with
+locus_tag plus score / call columns). Missing inputs leave their columns empty.
+
+The C-terminal features are a screen, not a prediction: T4SS effectors often carry
+a positively charged C-terminal signal instead of a cleaved N-terminal tag.
 """
 import argparse
 import glob
@@ -47,6 +52,35 @@ def plddt(dirpath):
     return pd.DataFrame(rows, columns=["locus_tag", "mean_plddt"])
 
 
+def read_fasta(path):
+    seqs, name = {}, None
+    for line in open(path):
+        line = line.rstrip()
+        if line.startswith(">"):
+            name = line[1:].split()[0]
+            seqs[name] = ""
+        elif name:
+            seqs[name] += line
+    return seqs
+
+
+def cterm(proteome_faa, n=30):
+    rows = []
+    for lt, s in read_fasta(proteome_faa).items():
+        t = s[-n:]
+        basic = sum(c in "KR" for c in t)
+        rows.append({"locus_tag": lt, "cterm_basic_frac": basic / len(t),
+                     "cterm_net_charge": basic - sum(c in "DE" for c in t)})
+    df = pd.DataFrame(rows)
+    df["cterm_basic_pctile"] = df["cterm_basic_frac"].rank(pct=True)
+    return df
+
+
+def t4se(name, path):
+    df = pd.read_csv(path, sep="\t")
+    return df.rename(columns=lambda c: c if c == "locus_tag" else f"t4se_{name}_{c}")
+
+
 def foldseek(name, path):
     cols = ["query", "target", "fident", "alnlen", "evalue", "bits", "alntmscore", "prob", "theader"]
     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -67,6 +101,8 @@ def main():
     p.add_argument("--scores_dir", required=True)
     p.add_argument("--context", required=True)
     p.add_argument("--foldseek", nargs="*", default=[], help="name=path pairs")
+    p.add_argument("--t4se", nargs="*", default=[], help="name=path pairs")
+    p.add_argument("--proteome_faa", required=True)
     p.add_argument("--out", required=True)
     a = p.parse_args()
 
@@ -76,7 +112,9 @@ def main():
                                            "secretion_class", "euk_domain") if c in sec]]
     parts = [sec, interpro(a.interpro), eggnog(a.eggnog), plddt(a.scores_dir),
              pd.read_csv(a.context, sep="\t")]
+    parts += [cterm(a.proteome_faa)]
     parts += [foldseek(*kv.split("=", 1)) for kv in a.foldseek]
+    parts += [t4se(*kv.split("=", 1)) for kv in a.t4se]
     for d in parts:
         if len(d) or "locus_tag" in d:
             out = out.merge(d, on="locus_tag", how="left")

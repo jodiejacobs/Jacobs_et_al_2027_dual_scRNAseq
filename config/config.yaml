@@ -181,8 +181,11 @@ hypo_context_window: 5
 hypo_env: "/private/groups/russelllab/jodie/miniforge3/envs/hypo"   # config/envs/hypo_env.yml
 interproscan_dir: ""        # e.g. /private/groups/russelllab/jodie/tools/interproscan-5.xx
 interproscan_apps: ""       # blank = all analyses; else comma list, e.g. "Pfam,SMART,CDD"
-eggnog_data_dir: ""         # download_eggnog_data.py target
-colabfold_bin: "colabfold_batch"
+eggnog_data_dir: "/private/groups/russelllab/jodie/db/eggnog"
+colabfold_bin: "/private/groups/russelllab/jodie/tools/localcolabfold/.pixi/envs/default/bin/colabfold_batch"
 colabfold_extra: ""         # e.g. local MSA server / database flags
 colabfold_partition: "gpu"
-hypo_foldseek_dbs: {}       # name: prebuilt db path, e.g. {pdb: /path/pdb, afdb_swissprot: /path/afdb_sp}
+hypo_foldseek_dbs:           # prefix = the *.dbtype filename minus ".dbtype"; check with: find <dir> -name '*.dbtype'
+  pdb: "/private/groups/russelllab/jodie/db/foldseek/pdb100/pdb100"
+  afdb_swissprot: "/private/groups/russelllab/jodie/db/foldseek/afdb_swissprot/afdb_swissprot"
+hypo_t4se_tables: {}        # T4SE predictor results, name: TSV with locus_tag + score/call columns, e.g. {bastion4: results/rescue/hypothetical/t4se/bastion4.tsv}
