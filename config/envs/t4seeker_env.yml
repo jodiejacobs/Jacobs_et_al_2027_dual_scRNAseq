@@ -1,0 +1,16 @@
+# mamba env create -f config/envs/t4seeker_env.yml  (then set t4seeker_env and t4seeker_dir in config.yaml)
+# CPU is enough for wMel (~100 s); validated with torch 2.x, numpy 2.x, fair-esm 2.0.
+name: t4seeker
+channels: [conda-forge, pytorch]
+dependencies:
+  - python=3.10
+  - pytorch
+  - cpuonly
+  - numpy
+  - pandas
+  - scikit-learn
+  - scipy
+  - biopython
+  - pip
+  - pip:
+      - fair-esm==2.0.0

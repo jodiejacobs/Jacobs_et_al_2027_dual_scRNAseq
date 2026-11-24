@@ -188,4 +188,9 @@ colabfold_partition: "gpu"
 hypo_foldseek_dbs:           # prefix = the *.dbtype filename minus ".dbtype"; check with: find <dir> -name '*.dbtype'
   pdb: "/private/groups/russelllab/jodie/db/foldseek/pdb100/pdb"
   afdb_swissprot: "/private/groups/russelllab/jodie/db/foldseek/afdb_swissprot/afdb_swissprot"
+hypo_foldseek_evalue: 10     # permissive; filter on prob / alntmscore in the evidence table
+hypo_foldseek_sens: 9.5      # foldseek -s (default 9.5 is already max; lower = faster)
+hypo_foldseek_max_seqs: 1000
+t4seeker_dir: ""             # git clone https://github.com/lijingtju/T4Seeker.git <here>; fill in the path
+t4seeker_env: "/private/groups/russelllab/jodie/miniforge3/envs/t4seeker"   # config/envs/t4seeker_env.yml
 hypo_t4se_tables: {}        # T4SE predictor results, name: TSV with locus_tag + score/call columns, e.g. {bastion4: results/rescue/hypothetical/t4se/bastion4.tsv}

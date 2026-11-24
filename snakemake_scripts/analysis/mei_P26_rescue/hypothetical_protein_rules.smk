@@ -4,6 +4,7 @@
 #   InterProScan, eggNOG-mapper   sequence annotation, whole wMel proteome (cheap, reusable)
 #   ColabFold + Foldseek          structure and structural homology, hits only
 #   21_hypo_context.py  neighbouring genes, mobile-element / co-up neighbours
+#   23_hypo_t4seeker.py T4Seeker T4SE score for the whole wMel proteome (scaler is fit on the input set)
 #   22_hypo_merge.py    one evidence table (also pulls rescue_secretion's class and euk_domain,
 #                       C-terminal charge features and external T4SE predictor tables)
 #
@@ -15,7 +16,9 @@
 HYPO_DIR = f"{RESCUE_DIR}/hypothetical"
 HYPO_ENV = config.get("hypo_env", "/private/groups/russelllab/jodie/miniforge3/envs/hypo")
 FOLDSEEK_DBS = config.get("hypo_foldseek_dbs") or {}
-T4SE_TABLES = config.get("hypo_t4se_tables") or {}
+T4SE_TABLES = dict(config.get("hypo_t4se_tables") or {})
+if config.get("t4seeker_dir"):
+    T4SE_TABLES["t4seeker"] = f"{HYPO_DIR}/t4seeker/t4seeker_wmel.tsv"
 CONDA_SH = "source /private/groups/russelllab/jodie/miniforge3/etc/profile.d/conda.sh"
 
 rule hypo_all:
@@ -136,12 +139,18 @@ rule hypo_colabfold:
         """
 
 # Pre-build each database once: foldseek databases PDB / Alphafold/Swiss-Prot / Alphafold/Proteome.
+# Permissive by default (config hypo_foldseek_evalue / hypo_foldseek_sens): weak hits are kept and
+# judged by prob and alntmscore in the merged table. --alignment-type 1 (3Di+AA with TM-align)
+# is what fills alntmscore.
 rule hypo_foldseek:
     input: rules.hypo_colabfold.output.pdb
     output: f"{HYPO_DIR}/foldseek/{{db}}.m8"
     params:
         db = lambda wc: FOLDSEEK_DBS[wc.db],
         tmp = f"{HYPO_DIR}/foldseek/tmp_{{db}}",
+        evalue = config.get("hypo_foldseek_evalue", 10),
+        sens = config.get("hypo_foldseek_sens", 9.5),
+        maxseqs = config.get("hypo_foldseek_max_seqs", 1000),
     threads: 16
     log: "logs/rescue/hypo_foldseek_{db}.log"
     resources: slurm_partition = "medium", mem_mb = 64000, runtime = hms_to_minutes("2:00:00")
@@ -151,12 +160,36 @@ rule hypo_foldseek:
         {CONDA_SH}
         conda activate {HYPO_ENV}
         if ls {input}/*.pdb >/dev/null 2>&1; then
-            foldseek easy-search {input} {params.db} {output} {params.tmp} -e 1e-3 \\
-                --threads {threads} \\
+            rm -rf {params.tmp}
+            foldseek easy-search {input} {params.db} {output} {params.tmp} \\
+                -e {params.evalue} -s {params.sens} --max-seqs {params.maxseqs} \\
+                --alignment-type 1 --threads {threads} \\
                 --format-output "query,target,fident,alnlen,evalue,bits,alntmscore,prob,theader"
         else
             : > {output}
         fi
+        """
+
+# T4Seeker (Li lab, github.com/lijingtju/T4Seeker): clone it, set t4seeker_dir / t4seeker_env.
+# Runs on the WHOLE proteome because its feature scaler is fit on the input set. Scores are
+# uncalibrated (~40% of wMel is called Y at 0.5), so read p_t4se_pctile, not the Y/N call.
+rule hypo_t4seeker:
+    input: rules.hypo_proteome_faa.output
+    output: f"{HYPO_DIR}/t4seeker/t4seeker_wmel.tsv"
+    params:
+        repo = config.get("t4seeker_dir", ""),
+        env = config.get("t4seeker_env", HYPO_ENV),
+    threads: 8
+    log: "logs/rescue/hypo_t4seeker.log"
+    resources: slurm_partition = "medium", mem_mb = 32000, runtime = hms_to_minutes("1:00:00")
+    shell:
+        """
+        exec > {log} 2>&1
+        if [ -z "{params.repo}" ]; then echo "ERROR: set t4seeker_dir in config.yaml"; exit 1; fi
+        {CONDA_SH}
+        conda activate {params.env}
+        export OMP_NUM_THREADS={threads}
+        python {RESCUE_SCRIPTS}/23_hypo_t4seeker.py --repo {params.repo} --fasta {input} --out {output}
         """
 
 rule hypo_context:
